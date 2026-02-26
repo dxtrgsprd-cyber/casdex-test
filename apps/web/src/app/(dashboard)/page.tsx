@@ -65,10 +65,10 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const EVENT_TYPE_COLORS: Record<string, string> = {
-  survey: 'bg-purple-100 text-purple-700 border-purple-200',
-  ikom: 'bg-blue-100 text-blue-700 border-blue-200',
-  ckom: 'bg-teal-100 text-teal-700 border-teal-200',
-  due_date: 'bg-red-100 text-red-700 border-red-200',
+  survey: 'border-l-purple-500',
+  ikom: 'border-l-blue-500',
+  ckom: 'border-l-teal-500',
+  due_date: 'border-l-red-500',
 };
 
 const EVENT_TYPE_LABELS: Record<string, string> = {
@@ -112,18 +112,24 @@ export default function DashboardPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <p className="text-sm text-gray-400">Loading dashboard...</p>
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-primary-600 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-sm text-gray-400">Loading dashboard...</p>
+        </div>
       </div>
     );
   }
 
   if (!data) {
     return (
-      <div className="card p-8 text-center">
+      <div className="bg-white rounded border border-gray-200 p-8 text-center">
         <p className="text-sm text-gray-500">
           Welcome back, {user?.firstName}. Unable to load dashboard data.
         </p>
-        <button className="btn-secondary mt-4 text-sm" onClick={loadDashboard}>
+        <button
+          className="mt-4 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50"
+          onClick={loadDashboard}
+        >
           Retry
         </button>
       </div>
@@ -133,67 +139,93 @@ export default function DashboardPage() {
   const { metrics } = data;
 
   return (
-    <div>
-      {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          {tenant?.name} — {roles.join(', ')}
-        </p>
+    <div className="space-y-6">
+      {/* Page Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-gray-800">Dashboard</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            {tenant?.name} — {roles.join(', ')}
+          </p>
+        </div>
+        <div className="text-sm text-gray-400">
+          {new Date().toLocaleDateString('en-US', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          })}
+        </div>
       </div>
 
-      {/* Metrics Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-6">
-        <MetricCard label="OPPs Assigned" value={metrics.oppsAssigned} />
-        <MetricCard label="Surveys Scheduled" value={metrics.surveysScheduled} />
-        <MetricCard label="OPPs In Progress" value={metrics.oppsInProgress} />
-        <MetricCard label="Projects In Progress" value={metrics.projectsInProgress} />
-        <MetricCard
+      {/* Row 1: Top Metric Cards with colored accent bars */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+        <StatCard
+          label="OPPs Assigned"
+          value={metrics.oppsAssigned}
+          accent="blue"
+        />
+        <StatCard
+          label="Surveys Scheduled"
+          value={metrics.surveysScheduled}
+          accent="purple"
+        />
+        <StatCard
+          label="OPPs In Progress"
+          value={metrics.oppsInProgress}
+          accent="yellow"
+        />
+        <StatCard
+          label="Projects Active"
+          value={metrics.projectsInProgress}
+          accent="cyan"
+        />
+        <StatCard
+          label="OPPs Won (Month)"
+          value={metrics.oppsWon.month}
+          accent="green"
+          sub={`Year: ${metrics.oppsWon.year} | All: ${metrics.oppsWon.total}`}
+        />
+        <StatCard
           label="OPPs Completed"
           value={metrics.oppsCompleted.month}
-          sub={`Year: ${metrics.oppsCompleted.year} | Total: ${metrics.oppsCompleted.total}`}
-        />
-        <MetricCard
-          label="OPPs Won"
-          value={metrics.oppsWon.month}
-          sub={`Year: ${metrics.oppsWon.year} | Total: ${metrics.oppsWon.total}`}
-          accent="green"
+          accent="gray"
+          sub={`Year: ${metrics.oppsCompleted.year} | All: ${metrics.oppsCompleted.total}`}
         />
       </div>
 
-      {/* Second row: Projects Closed */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
-        <MetricCard
+      {/* Row 2: Projects Closed (smaller row) */}
+      <div className="grid grid-cols-3 gap-4">
+        <StatCard
           label="Projects Closed (Month)"
           value={metrics.projectsClosed.month}
+          accent="teal"
         />
-        <MetricCard
+        <StatCard
           label="Projects Closed (Year)"
           value={metrics.projectsClosed.year}
+          accent="teal"
         />
-        <MetricCard
+        <StatCard
           label="Projects Closed (Total)"
           value={metrics.projectsClosed.total}
+          accent="teal"
         />
       </div>
 
-      {/* Middle Row: Calendar + Risk + Documents */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-        {/* Calendar Widget */}
-        <div className="lg:col-span-2">
+      {/* Row 3: Calendar (2/3) + Risk Alerts (1/3) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <div className="lg:col-span-8">
           <CalendarWidget events={data.calendarEvents} />
         </div>
-
-        {/* Risk Widget */}
-        <RiskWidget items={data.riskItems} />
+        <div className="lg:col-span-4">
+          <RiskWidget items={data.riskItems} />
+        </div>
       </div>
 
-      {/* Vendor + Subcontractor + Documents Row */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <VendorWidget
-          total={data.vendors.total}
-          items={data.vendors.items}
-        />
+      {/* Row 4: Vendors, Subcontractors, Documents */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <VendorWidget total={data.vendors.total} items={data.vendors.items} />
         <SubcontractorWidget
           total={data.subcontractors.total}
           items={data.subcontractors.items}
@@ -201,45 +233,59 @@ export default function DashboardPage() {
         <DocumentWidget documents={data.recentDocuments} />
       </div>
 
-      {/* Bottom: Unassigned Opportunities List */}
+      {/* Row 5: Unassigned Opportunities Table */}
       <UnassignedOppsTable opps={data.unassignedOpps} />
     </div>
   );
 }
 
-// --- Metric Card ---
-function MetricCard({
+// =============================================================================
+// StatCard — Tabler-style metric card with colored top accent bar
+// =============================================================================
+function StatCard({
   label,
   value,
-  sub,
   accent,
+  sub,
 }: {
   label: string;
   value: number;
+  accent: 'blue' | 'green' | 'red' | 'yellow' | 'purple' | 'cyan' | 'teal' | 'gray';
   sub?: string;
-  accent?: 'green' | 'red';
 }) {
-  const valueColor =
-    accent === 'green'
-      ? 'text-green-600'
-      : accent === 'red'
-        ? 'text-red-600'
-        : 'text-gray-900';
+  const accentColors: Record<string, string> = {
+    blue: 'bg-blue-600',
+    green: 'bg-green-600',
+    red: 'bg-red-600',
+    yellow: 'bg-yellow-500',
+    purple: 'bg-purple-600',
+    cyan: 'bg-cyan-600',
+    teal: 'bg-teal-600',
+    gray: 'bg-gray-400',
+  };
 
   return (
-    <div className="card p-4">
-      <p className="text-xs text-gray-500 truncate">{label}</p>
-      <p className={`text-2xl font-bold mt-1 ${valueColor}`}>{value}</p>
-      {sub && <p className="text-[10px] text-gray-400 mt-1 truncate">{sub}</p>}
+    <div className="bg-white rounded border border-gray-200 overflow-hidden">
+      <div className={`h-1 ${accentColors[accent]}`} />
+      <div className="p-4">
+        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide truncate">
+          {label}
+        </p>
+        <p className="text-2xl font-bold text-gray-800 mt-1">{value}</p>
+        {sub && (
+          <p className="text-[11px] text-gray-400 mt-1 truncate">{sub}</p>
+        )}
+      </div>
     </div>
   );
 }
 
-// --- Calendar Widget ---
+// =============================================================================
+// CalendarWidget — Tabler card with header + toggle
+// =============================================================================
 function CalendarWidget({ events }: { events: CalendarEvent[] }) {
   const [view, setView] = useState<'list' | 'month'>('list');
 
-  // Group events by date for the month view
   const eventsByDate: Record<string, CalendarEvent[]> = {};
   for (const e of events) {
     const dateKey = new Date(e.date).toISOString().split('T')[0];
@@ -247,37 +293,39 @@ function CalendarWidget({ events }: { events: CalendarEvent[] }) {
     eventsByDate[dateKey].push(e);
   }
 
-  // Build calendar grid for current month
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth();
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const today = now.getDate();
-
-  const monthName = now.toLocaleString('default', { month: 'long', year: 'numeric' });
+  const monthName = now.toLocaleString('default', {
+    month: 'long',
+    year: 'numeric',
+  });
 
   return (
-    <div className="card p-4">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-semibold text-gray-900">Calendar</h3>
-        <div className="flex items-center gap-1">
+    <div className="bg-white rounded border border-gray-200">
+      {/* Card Header */}
+      <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+        <h3 className="text-base font-semibold text-gray-800">Calendar</h3>
+        <div className="flex border border-gray-200 rounded overflow-hidden">
           <button
             onClick={() => setView('list')}
-            className={`px-2 py-1 text-xs rounded ${
+            className={`px-3 py-1.5 text-xs font-medium transition-colors ${
               view === 'list'
-                ? 'bg-primary-100 text-primary-700'
-                : 'text-gray-500 hover:bg-gray-100'
+                ? 'bg-primary-600 text-white'
+                : 'bg-white text-gray-600 hover:bg-gray-50'
             }`}
           >
             List
           </button>
           <button
             onClick={() => setView('month')}
-            className={`px-2 py-1 text-xs rounded ${
+            className={`px-3 py-1.5 text-xs font-medium border-l border-gray-200 transition-colors ${
               view === 'month'
-                ? 'bg-primary-100 text-primary-700'
-                : 'text-gray-500 hover:bg-gray-100'
+                ? 'bg-primary-600 text-white'
+                : 'bg-white text-gray-600 hover:bg-gray-50'
             }`}
           >
             Month
@@ -285,166 +333,182 @@ function CalendarWidget({ events }: { events: CalendarEvent[] }) {
         </div>
       </div>
 
-      {view === 'list' ? (
-        <div className="space-y-2 max-h-72 overflow-y-auto">
-          {events.length === 0 ? (
-            <p className="text-sm text-gray-400 py-4 text-center">
-              No upcoming events
-            </p>
-          ) : (
-            events.map((e) => (
-              <div
-                key={e.id}
-                className={`flex items-start gap-3 p-2 rounded border text-sm ${
-                  EVENT_TYPE_COLORS[e.type] || 'bg-gray-50 text-gray-700 border-gray-200'
-                }`}
-              >
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium truncate">{e.title}</p>
-                  <p className="text-xs opacity-75 truncate">{e.details}</p>
-                </div>
-                <div className="text-xs whitespace-nowrap text-right">
-                  <p>{new Date(e.date).toLocaleDateString()}</p>
-                  <p className="opacity-75">
-                    {EVENT_TYPE_LABELS[e.type] || e.type}
-                  </p>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      ) : (
-        <div>
-          <p className="text-sm font-medium text-gray-700 mb-2 text-center">
-            {monthName}
-          </p>
-          <div className="grid grid-cols-7 gap-px text-center text-xs">
-            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
-              <div key={d} className="py-1 font-medium text-gray-500">
-                {d}
-              </div>
-            ))}
-            {/* Empty cells before first day */}
-            {Array.from({ length: firstDay }).map((_, i) => (
-              <div key={`empty-${i}`} className="py-1" />
-            ))}
-            {/* Days */}
-            {Array.from({ length: daysInMonth }).map((_, i) => {
-              const day = i + 1;
-              const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-              const dayEvents = eventsByDate[dateKey] || [];
-              const isToday = day === today;
-
-              return (
+      {/* Card Body */}
+      <div className="p-5">
+        {view === 'list' ? (
+          <div className="space-y-2 max-h-80 overflow-y-auto">
+            {events.length === 0 ? (
+              <p className="text-sm text-gray-400 py-8 text-center">
+                No upcoming events
+              </p>
+            ) : (
+              events.map((e) => (
                 <div
-                  key={day}
-                  className={`py-1 rounded relative ${
-                    isToday ? 'bg-primary-50 font-bold text-primary-700' : ''
+                  key={e.id}
+                  className={`flex items-start gap-3 p-3 rounded bg-gray-50 border-l-4 ${
+                    EVENT_TYPE_COLORS[e.type] || 'border-l-gray-300'
                   }`}
-                  title={
-                    dayEvents.length > 0
-                      ? dayEvents.map((e) => e.title).join(', ')
-                      : undefined
-                  }
                 >
-                  {day}
-                  {dayEvents.length > 0 && (
-                    <div className="flex justify-center gap-0.5 mt-0.5">
-                      {dayEvents.slice(0, 3).map((e) => (
-                        <span
-                          key={e.id}
-                          className={`w-1 h-1 rounded-full ${
-                            e.type === 'survey'
-                              ? 'bg-purple-500'
-                              : e.type === 'ikom'
-                                ? 'bg-blue-500'
-                                : e.type === 'ckom'
-                                  ? 'bg-teal-500'
-                                  : 'bg-red-500'
-                          }`}
-                        />
-                      ))}
-                    </div>
-                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 truncate">
+                      {e.title}
+                    </p>
+                    <p className="text-xs text-gray-500 truncate mt-0.5">
+                      {e.details}
+                    </p>
+                  </div>
+                  <div className="text-xs text-right whitespace-nowrap">
+                    <p className="font-medium text-gray-700">
+                      {new Date(e.date).toLocaleDateString()}
+                    </p>
+                    <p className="text-gray-400 mt-0.5">
+                      {EVENT_TYPE_LABELS[e.type] || e.type}
+                    </p>
+                  </div>
                 </div>
-              );
-            })}
+              ))
+            )}
           </div>
-          {/* Legend */}
-          <div className="flex items-center gap-3 mt-3 text-[10px] text-gray-500">
-            <span className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-purple-500" /> Survey
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-blue-500" /> IKOM
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-teal-500" /> CKOM
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-red-500" /> Due Date
-            </span>
+        ) : (
+          <div>
+            <p className="text-sm font-semibold text-gray-700 mb-3 text-center">
+              {monthName}
+            </p>
+            <div className="grid grid-cols-7 gap-1 text-center text-xs">
+              {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((d) => (
+                <div
+                  key={d}
+                  className="py-2 font-semibold text-gray-400 uppercase text-[10px]"
+                >
+                  {d}
+                </div>
+              ))}
+              {Array.from({ length: firstDay }).map((_, i) => (
+                <div key={`e-${i}`} className="py-2" />
+              ))}
+              {Array.from({ length: daysInMonth }).map((_, i) => {
+                const day = i + 1;
+                const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                const dayEvents = eventsByDate[dateKey] || [];
+                const isToday = day === today;
+
+                return (
+                  <div
+                    key={day}
+                    className={`py-2 rounded relative cursor-default ${
+                      isToday
+                        ? 'bg-primary-600 text-white font-bold'
+                        : dayEvents.length > 0
+                          ? 'bg-gray-100 font-medium text-gray-800'
+                          : 'text-gray-600 hover:bg-gray-50'
+                    }`}
+                    title={
+                      dayEvents.length > 0
+                        ? dayEvents.map((ev) => ev.title).join(', ')
+                        : undefined
+                    }
+                  >
+                    {day}
+                    {dayEvents.length > 0 && !isToday && (
+                      <div className="flex justify-center gap-0.5 mt-0.5">
+                        {dayEvents.slice(0, 3).map((ev) => (
+                          <span
+                            key={ev.id}
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              ev.type === 'survey'
+                                ? 'bg-purple-500'
+                                : ev.type === 'ikom'
+                                  ? 'bg-blue-500'
+                                  : ev.type === 'ckom'
+                                    ? 'bg-teal-500'
+                                    : 'bg-red-500'
+                            }`}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex items-center gap-4 mt-4 pt-3 border-t border-gray-100 text-xs text-gray-500">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-purple-500" /> Survey
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-blue-500" /> IKOM
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-teal-500" /> CKOM
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-red-500" /> Due Date
+              </span>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
 
-// --- Risk Widget ---
-function RiskWidget({
-  items,
-}: {
-  items: DashboardData['riskItems'];
-}) {
+// =============================================================================
+// RiskWidget
+// =============================================================================
+function RiskWidget({ items }: { items: DashboardData['riskItems'] }) {
   const router = useRouter();
 
   return (
-    <div className="card p-4">
-      <h3 className="text-sm font-semibold text-gray-900 mb-3">
-        Risk Alerts
-      </h3>
-      {items.length === 0 ? (
-        <p className="text-sm text-gray-400 py-4 text-center">
-          No elevated risk items
-        </p>
-      ) : (
-        <div className="space-y-2 max-h-72 overflow-y-auto">
-          {items.map((item) => (
-            <button
-              key={item.id}
-              onClick={() =>
-                router.push(`/opportunities/${item.opportunity.id}`)
-              }
-              className="w-full text-left p-2 rounded border border-gray-100 hover:border-gray-300 transition-colors"
-            >
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-medium text-gray-900 truncate">
-                  {item.opportunity.oppNumber}
+    <div className="bg-white rounded border border-gray-200 h-full flex flex-col">
+      <div className="px-5 py-4 border-b border-gray-200">
+        <h3 className="text-base font-semibold text-gray-800">Risk Alerts</h3>
+      </div>
+      <div className="p-5 flex-1 overflow-y-auto">
+        {items.length === 0 ? (
+          <p className="text-sm text-gray-400 py-8 text-center">
+            No elevated risk items
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {items.map((item) => (
+              <button
+                key={item.id}
+                onClick={() =>
+                  router.push(`/opportunities/${item.opportunity.id}`)
+                }
+                className="w-full text-left p-3 rounded border border-gray-200 hover:border-gray-300 hover:shadow-sm transition-all"
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-sm font-semibold text-gray-800">
+                    {item.opportunity.oppNumber}
+                  </p>
+                  <span
+                    className={`text-[10px] px-2 py-0.5 rounded font-semibold uppercase tracking-wide ${
+                      RISK_COLORS[item.riskLevel] || 'bg-gray-100 text-gray-700'
+                    }`}
+                  >
+                    {item.riskLevel}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 truncate">
+                  {item.opportunity.customerName} —{' '}
+                  {item.opportunity.projectName}
                 </p>
-                <span
-                  className={`text-[10px] px-1.5 py-0.5 rounded font-medium capitalize ${
-                    RISK_COLORS[item.riskLevel] || 'bg-gray-100 text-gray-700'
-                  }`}
-                >
-                  {item.riskLevel}
-                </span>
-              </div>
-              <p className="text-xs text-gray-500 truncate">
-                {item.opportunity.customerName} — {item.opportunity.projectName}
-              </p>
-              <p className="text-xs text-gray-400">
-                Score: {item.overallScore.toFixed(1)} ({item.stage})
-              </p>
-            </button>
-          ))}
-        </div>
-      )}
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Score: {item.overallScore.toFixed(1)} | {item.stage}
+                </p>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-// --- Vendor Widget ---
+// =============================================================================
+// VendorWidget
+// =============================================================================
 function VendorWidget({
   total,
   items,
@@ -455,46 +519,60 @@ function VendorWidget({
   const router = useRouter();
 
   return (
-    <div className="card p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-gray-900">Vendors</h3>
-        <span className="text-xs text-gray-400">{total} active</span>
+    <div className="bg-white rounded border border-gray-200 flex flex-col">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+        <h3 className="text-base font-semibold text-gray-800">Vendors</h3>
+        <span className="text-xs font-medium text-gray-400 bg-gray-100 px-2 py-1 rounded">
+          {total}
+        </span>
       </div>
-      {items.length === 0 ? (
-        <p className="text-sm text-gray-400 py-4 text-center">
-          No vendors added
-        </p>
-      ) : (
-        <div className="space-y-2">
-          {items.map((v) => (
-            <div
-              key={v.id}
-              className="p-2 rounded border border-gray-100 text-sm"
-            >
-              <p className="font-medium text-gray-900 truncate">{v.name}</p>
-              {v.category && (
-                <p className="text-xs text-gray-500 capitalize">
-                  {v.category.replace(/_/g, ' ')}
+      <div className="p-5 flex-1">
+        {items.length === 0 ? (
+          <p className="text-sm text-gray-400 py-4 text-center">
+            No vendors added
+          </p>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {items.map((v) => (
+              <div key={v.id} className="py-3 first:pt-0 last:pb-0">
+                <p className="text-sm font-medium text-gray-800 truncate">
+                  {v.name}
                 </p>
-              )}
-              {v.contact && (
-                <p className="text-xs text-gray-400 truncate">{v.contact}</p>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-      <button
-        onClick={() => router.push('/vendors')}
-        className="w-full mt-3 text-xs text-primary-600 hover:text-primary-800 font-medium"
-      >
-        View all vendors
-      </button>
+                <div className="flex items-center gap-2 mt-0.5">
+                  {v.category && (
+                    <span className="text-[11px] text-gray-500 capitalize">
+                      {v.category.replace(/_/g, ' ')}
+                    </span>
+                  )}
+                  {v.contact && (
+                    <>
+                      <span className="text-gray-300">|</span>
+                      <span className="text-[11px] text-gray-400 truncate">
+                        {v.contact}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="px-5 py-3 border-t border-gray-200">
+        <button
+          onClick={() => router.push('/vendors')}
+          className="text-xs font-medium text-primary-600 hover:text-primary-800"
+        >
+          View all vendors
+        </button>
+      </div>
     </div>
   );
 }
 
-// --- Subcontractor Widget ---
+// =============================================================================
+// SubcontractorWidget
+// =============================================================================
 function SubcontractorWidget({
   total,
   items,
@@ -505,103 +583,119 @@ function SubcontractorWidget({
   const router = useRouter();
 
   return (
-    <div className="card p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-gray-900">Subcontractors</h3>
-        <span className="text-xs text-gray-400">{total} active</span>
+    <div className="bg-white rounded border border-gray-200 flex flex-col">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+        <h3 className="text-base font-semibold text-gray-800">
+          Subcontractors
+        </h3>
+        <span className="text-xs font-medium text-gray-400 bg-gray-100 px-2 py-1 rounded">
+          {total}
+        </span>
       </div>
-      {items.length === 0 ? (
-        <p className="text-sm text-gray-400 py-4 text-center">
-          No subcontractors added
-        </p>
-      ) : (
-        <div className="space-y-2">
-          {items.map((s) => (
-            <div
-              key={s.id}
-              className="p-2 rounded border border-gray-100 text-sm"
-            >
-              <p className="font-medium text-gray-900 truncate">
-                {s.companyName}
-              </p>
-              {s.primaryContact && (
-                <p className="text-xs text-gray-500 truncate">
-                  {s.primaryContact}
+      <div className="p-5 flex-1">
+        {items.length === 0 ? (
+          <p className="text-sm text-gray-400 py-4 text-center">
+            No subcontractors added
+          </p>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {items.map((s) => (
+              <div key={s.id} className="py-3 first:pt-0 last:pb-0">
+                <p className="text-sm font-medium text-gray-800 truncate">
+                  {s.companyName}
                 </p>
-              )}
-              {Array.isArray(s.trades) && s.trades.length > 0 && (
-                <p className="text-xs text-gray-400 truncate">
-                  {(s.trades as string[]).join(', ')}
-                </p>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-      <button
-        onClick={() => router.push('/subcontractors')}
-        className="w-full mt-3 text-xs text-primary-600 hover:text-primary-800 font-medium"
-      >
-        View all subcontractors
-      </button>
+                <div className="flex items-center gap-2 mt-0.5">
+                  {s.primaryContact && (
+                    <span className="text-[11px] text-gray-500 truncate">
+                      {s.primaryContact}
+                    </span>
+                  )}
+                  {Array.isArray(s.trades) && s.trades.length > 0 && (
+                    <>
+                      <span className="text-gray-300">|</span>
+                      <span className="text-[11px] text-gray-400 truncate">
+                        {(s.trades as string[]).join(', ')}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="px-5 py-3 border-t border-gray-200">
+        <button
+          onClick={() => router.push('/subcontractors')}
+          className="text-xs font-medium text-primary-600 hover:text-primary-800"
+        >
+          View all subcontractors
+        </button>
+      </div>
     </div>
   );
 }
 
-// --- Document Widget ---
+// =============================================================================
+// DocumentWidget
+// =============================================================================
 function DocumentWidget({
   documents,
 }: {
   documents: DashboardData['recentDocuments'];
 }) {
   return (
-    <div className="card p-4">
-      <h3 className="text-sm font-semibold text-gray-900 mb-3">
-        Recent Documents
-      </h3>
-      {documents.length === 0 ? (
-        <p className="text-sm text-gray-400 py-4 text-center">
-          No documents yet
-        </p>
-      ) : (
-        <div className="space-y-2">
-          {documents.map((doc) => (
-            <div
-              key={doc.id}
-              className="p-2 rounded border border-gray-100 text-sm"
-            >
-              <p className="font-medium text-gray-900 truncate">
-                {doc.fileName}
-              </p>
-              <div className="flex items-center justify-between mt-0.5">
-                <p className="text-xs text-gray-500">
-                  {doc.type} V{doc.version}
-                </p>
-                <div className="flex items-center gap-1">
+    <div className="bg-white rounded border border-gray-200 flex flex-col">
+      <div className="px-5 py-4 border-b border-gray-200">
+        <h3 className="text-base font-semibold text-gray-800">
+          Recent Documents
+        </h3>
+      </div>
+      <div className="p-5 flex-1">
+        {documents.length === 0 ? (
+          <p className="text-sm text-gray-400 py-4 text-center">
+            No documents yet
+          </p>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {documents.map((doc) => (
+              <div key={doc.id} className="py-3 first:pt-0 last:pb-0">
+                <div className="flex items-start justify-between">
+                  <p className="text-sm font-medium text-gray-800 truncate flex-1 mr-2">
+                    {doc.fileName}
+                  </p>
                   {doc.isSigned && (
-                    <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded">
+                    <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-medium shrink-0">
                       Signed
                     </span>
                   )}
-                  <span className="text-[10px] text-gray-400">
+                </div>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="text-[11px] text-gray-500">
+                    {doc.type} V{doc.version}
+                  </span>
+                  <span className="text-gray-300">|</span>
+                  <span className="text-[11px] text-gray-400">
                     {new Date(doc.createdAt).toLocaleDateString()}
                   </span>
                 </div>
+                {doc.opportunity && (
+                  <p className="text-[11px] text-gray-400 truncate mt-0.5">
+                    {doc.opportunity.oppNumber} — {doc.opportunity.customerName}
+                  </p>
+                )}
               </div>
-              {doc.opportunity && (
-                <p className="text-xs text-gray-400 truncate mt-0.5">
-                  {doc.opportunity.oppNumber} — {doc.opportunity.customerName}
-                </p>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-// --- Unassigned OPPs Table (bottom of dashboard) ---
+// =============================================================================
+// UnassignedOppsTable — Tabler-style table card
+// =============================================================================
 function UnassignedOppsTable({
   opps,
 }: {
@@ -610,78 +704,84 @@ function UnassignedOppsTable({
   const router = useRouter();
 
   return (
-    <div className="card overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
-        <h3 className="text-sm font-semibold text-gray-900">
+    <div className="bg-white rounded border border-gray-200 overflow-hidden">
+      <div className="px-5 py-4 border-b border-gray-200">
+        <h3 className="text-base font-semibold text-gray-800">
           Current Opportunities (No Project Number)
         </h3>
-        <p className="text-xs text-gray-500 mt-0.5">
-          Sorted by oldest first. Click an OPP number to open details.
+        <p className="text-xs text-gray-500 mt-1">
+          Sorted by oldest first. Click a row to open opportunity details.
         </p>
       </div>
 
       {opps.length === 0 ? (
-        <div className="p-6 text-center">
+        <div className="p-8 text-center">
           <p className="text-sm text-gray-400">
             All opportunities have been assigned project numbers, or no
             opportunities exist yet.
           </p>
         </div>
       ) : (
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-200">
-              <th className="text-left px-4 py-2 font-medium text-gray-600 text-xs">
-                OPP #
-              </th>
-              <th className="text-left px-4 py-2 font-medium text-gray-600 text-xs">
-                Customer
-              </th>
-              <th className="text-left px-4 py-2 font-medium text-gray-600 text-xs">
-                Project Name
-              </th>
-              <th className="text-left px-4 py-2 font-medium text-gray-600 text-xs">
-                Status
-              </th>
-              <th className="text-left px-4 py-2 font-medium text-gray-600 text-xs">
-                Territory
-              </th>
-              <th className="text-left px-4 py-2 font-medium text-gray-600 text-xs">
-                Created
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {opps.map((opp) => (
-              <tr
-                key={opp.id}
-                onClick={() => router.push(`/opportunities/${opp.id}`)}
-                className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer transition-colors"
-              >
-                <td className="px-4 py-2 font-medium text-primary-600">
-                  {opp.oppNumber}
-                </td>
-                <td className="px-4 py-2 text-gray-700">{opp.customerName}</td>
-                <td className="px-4 py-2 text-gray-700">{opp.projectName}</td>
-                <td className="px-4 py-2">
-                  <span
-                    className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${
-                      STATUS_COLORS[opp.status] || 'bg-gray-100'
-                    }`}
-                  >
-                    {STATUS_LABELS[opp.status] || opp.status}
-                  </span>
-                </td>
-                <td className="px-4 py-2 text-gray-500">
-                  {opp.territory || '-'}
-                </td>
-                <td className="px-4 py-2 text-gray-400">
-                  {new Date(opp.createdAt).toLocaleDateString()}
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="bg-gray-50">
+                <th className="text-left px-5 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+                  OPP #
+                </th>
+                <th className="text-left px-5 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+                  Customer
+                </th>
+                <th className="text-left px-5 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+                  Project Name
+                </th>
+                <th className="text-left px-5 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+                  Status
+                </th>
+                <th className="text-left px-5 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+                  Territory
+                </th>
+                <th className="text-left px-5 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+                  Created
+                </th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {opps.map((opp) => (
+                <tr
+                  key={opp.id}
+                  onClick={() => router.push(`/opportunities/${opp.id}`)}
+                  className="hover:bg-gray-50 cursor-pointer transition-colors"
+                >
+                  <td className="px-5 py-3 text-sm font-medium text-primary-600">
+                    {opp.oppNumber}
+                  </td>
+                  <td className="px-5 py-3 text-sm text-gray-700">
+                    {opp.customerName}
+                  </td>
+                  <td className="px-5 py-3 text-sm text-gray-700">
+                    {opp.projectName}
+                  </td>
+                  <td className="px-5 py-3">
+                    <span
+                      className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${
+                        STATUS_COLORS[opp.status] || 'bg-gray-100 text-gray-700'
+                      }`}
+                    >
+                      {STATUS_LABELS[opp.status] || opp.status}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3 text-sm text-gray-500">
+                    {opp.territory || '-'}
+                  </td>
+                  <td className="px-5 py-3 text-sm text-gray-400">
+                    {new Date(opp.createdAt).toLocaleDateString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
