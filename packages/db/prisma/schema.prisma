@@ -1,0 +1,715 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// MULTI-TENANCY
+// ============================================================
+
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  isActive  Boolean  @default(true)
+  settings  Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  users          UserTenant[]
+  roles          Role[]
+  opportunities  Opportunity[]
+  surveys        Survey[]
+  designs        Design[]
+  projects       Project[]
+  documents      Document[]
+  vendors        Vendor[]
+  subcontractors Subcontractor[]
+  deviceLibrary  TenantDevice[]
+  auditLogs      AuditLog[]
+
+  @@map("tenants")
+}
+
+// ============================================================
+// USERS & AUTH
+// ============================================================
+
+model User {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  passwordHash   String
+  firstName      String
+  lastName       String
+  phone          String?
+  avatar         String?
+  title          String?
+  isGlobalAdmin  Boolean   @default(false)
+  isActive       Boolean   @default(true)
+  lastLoginAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  // Relations
+  tenants           UserTenant[]
+  refreshTokens     RefreshToken[]
+  passwordResets    PasswordReset[]
+  createdOpps       Opportunity[]    @relation("OppCreatedBy")
+  assignedSurveys   Survey[]         @relation("SurveyAssignee")
+  createdSurveys    Survey[]         @relation("SurveyCreatedBy")
+  createdDesigns    Design[]         @relation("DesignCreatedBy")
+  managedProjects   Project[]        @relation("ProjectManager")
+  auditLogs         AuditLog[]
+  notifications     Notification[]
+  oppTeamMembers    OppTeamMember[]
+  projectAssignments ProjectAssignment[]
+  dailyReports      DailyReport[]
+  performanceScores PerformanceScore[] @relation("ScoredUser")
+  givenScores       PerformanceScore[] @relation("ScoredBy")
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model PasswordReset {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  type      String   // 'invite' | 'recovery'
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@map("password_resets")
+}
+
+// ============================================================
+// ROLES & PERMISSIONS (per-tenant)
+// ============================================================
+
+model UserTenant {
+  id       String  @id @default(cuid())
+  userId   String
+  tenantId String
+  roleId   String
+  isActive Boolean @default(true)
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id])
+
+  @@unique([userId, tenantId])
+  @@index([tenantId])
+  @@map("user_tenants")
+}
+
+model Role {
+  id          String  @id @default(cuid())
+  tenantId    String
+  name        String  // e.g. 'admin', 'manager', 'sales', 'presales', etc.
+  displayName String
+  isDefault   Boolean @default(false) // true for system-created default roles
+  isCustom    Boolean @default(false) // true for tenant-created custom roles
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  permissions RolePermission[]
+  userTenants UserTenant[]
+
+  @@unique([tenantId, name])
+  @@map("roles")
+}
+
+model RolePermission {
+  id       String @id @default(cuid())
+  roleId   String
+  module   String // 'opportunities', 'survey', 'design', 'projects', 'tools', 'management'
+  action   String // 'create', 'read', 'update', 'delete'
+  allowed  Boolean @default(false)
+
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, module, action])
+  @@map("role_permissions")
+}
+
+// ============================================================
+// OPPORTUNITIES
+// ============================================================
+
+model Opportunity {
+  id               String   @id @default(cuid())
+  tenantId         String
+  oppNumber        String   // OPP-XXXXXX — auto-generated, primary ID forever
+  projectNumber    String?  // PN-XXXXX — assigned later, never replaces OPP number
+  status           String   @default("lead") // OppStatus
+  customerName     String
+  customerContact  String?
+  customerEmail    String?
+  customerPhone    String?
+  projectName      String
+  systemName       String?
+  installAddress   String?
+  installCity      String?
+  installState     String?
+  installZip       String?
+  territory        String?  // state/territory bucket
+  projectDescription String?
+  notes            String?
+  riskScore        Float?
+  poNumber         String?
+  createdById      String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  closedAt         DateTime?
+
+  tenant     Tenant @relation(fields: [tenantId], references: [id])
+  createdBy  User   @relation("OppCreatedBy", fields: [createdById], references: [id])
+
+  // Relations
+  teamMembers     OppTeamMember[]
+  surveys         Survey[]
+  designs         Design[]
+  project         Project?
+  documents       Document[]
+  riskAssessments RiskAssessment[]
+  statusHistory   OppStatusHistory[]
+  approvals       Approval[]
+
+  @@unique([tenantId, oppNumber])
+  @@index([tenantId, status])
+  @@index([tenantId, territory])
+  @@map("opportunities")
+}
+
+model OppTeamMember {
+  id     String @id @default(cuid())
+  oppId  String
+  userId String
+  role   String // 'isr', 'osr', 'presales_architect', 'presales_engineer', 'project_manager', 'field_tech', 'subcontractor'
+
+  opportunity Opportunity @relation(fields: [oppId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id])
+
+  @@unique([oppId, userId, role])
+  @@map("opp_team_members")
+}
+
+model OppStatusHistory {
+  id        String   @id @default(cuid())
+  oppId     String
+  fromStatus String?
+  toStatus   String
+  changedBy  String
+  reason     String?
+  createdAt  DateTime @default(now())
+
+  opportunity Opportunity @relation(fields: [oppId], references: [id], onDelete: Cascade)
+
+  @@index([oppId])
+  @@map("opp_status_history")
+}
+
+model Approval {
+  id          String   @id @default(cuid())
+  oppId       String
+  type        String   // 'quote_approval', 'delete_approval', 'customer_approval', 'project_approval'
+  requestedBy String
+  approvedBy  String?
+  status      String   @default("pending") // 'pending', 'approved', 'declined'
+  reason      String?  // required if declined
+  createdAt   DateTime @default(now())
+  resolvedAt  DateTime?
+
+  opportunity Opportunity @relation(fields: [oppId], references: [id], onDelete: Cascade)
+
+  @@index([oppId])
+  @@map("approvals")
+}
+
+// ============================================================
+// SURVEYS
+// ============================================================
+
+model Survey {
+  id            String    @id @default(cuid())
+  tenantId      String
+  oppId         String?   // can exist without OPP initially
+  title         String
+  scheduledDate DateTime?
+  completedDate DateTime?
+  status        String    @default("scheduled") // 'scheduled', 'in_progress', 'completed', 'cancelled'
+  location      String?
+  notes         String?
+  fieldData     Json      @default("{}") // flexible survey data captured on-site
+  offlineId     String?   // for offline sync — client-generated ID
+  syncedAt      DateTime?
+  assigneeId    String
+  createdById   String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  tenant    Tenant      @relation(fields: [tenantId], references: [id])
+  opportunity Opportunity? @relation(fields: [oppId], references: [id])
+  assignee  User        @relation("SurveyAssignee", fields: [assigneeId], references: [id])
+  createdBy User        @relation("SurveyCreatedBy", fields: [createdById], references: [id])
+  photos    SurveyPhoto[]
+
+  @@index([tenantId, assigneeId])
+  @@index([tenantId, oppId])
+  @@map("surveys")
+}
+
+model SurveyPhoto {
+  id        String   @id @default(cuid())
+  surveyId  String
+  url       String
+  caption   String?
+  location  String?  // where in the building
+  takenAt   DateTime?
+  createdAt DateTime @default(now())
+
+  survey Survey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+
+  @@map("survey_photos")
+}
+
+// ============================================================
+// DESIGNS
+// ============================================================
+
+model Design {
+  id          String   @id @default(cuid())
+  tenantId    String
+  oppId       String?
+  name        String
+  version     Int      @default(1)
+  status      String   @default("draft") // 'draft', 'in_progress', 'completed', 'exported'
+  canvasData  Json     @default("{}") // full canvas state (devices, FOV, map coords, etc.)
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id])
+  opportunity Opportunity? @relation(fields: [oppId], references: [id])
+  createdBy   User         @relation("DesignCreatedBy", fields: [createdById], references: [id])
+  placedDevices PlacedDevice[]
+
+  @@index([tenantId, createdById])
+  @@index([tenantId, oppId])
+  @@map("designs")
+}
+
+model PlacedDevice {
+  id           String  @id @default(cuid())
+  designId     String
+  deviceId     String  // reference to device library
+  area         String? // e.g. "Building A - Main Entrance"
+  floor        String?
+  room         String?
+  positionX    Float?
+  positionY    Float?
+  rotation     Float   @default(0)
+  fovAngle     Float?  // horizontal angle of view
+  fovDistance   Float?  // max detection distance
+  cameraHeight Float?
+  tilt         Float?
+  notes        String?
+  installDetails String?
+
+  design Design @relation(fields: [designId], references: [id], onDelete: Cascade)
+
+  @@index([designId])
+  @@map("placed_devices")
+}
+
+// ============================================================
+// PROJECTS
+// ============================================================
+
+model Project {
+  id             String    @id @default(cuid())
+  tenantId       String
+  oppId          String    @unique
+  projectNumber  String    // PN-XXXXX
+  status         String    @default("active") // 'active', 'on_hold', 'completed', 'closed'
+  projectManagerId String
+  ikomDate       DateTime?
+  ikomNotes      String?
+  ckomDate       DateTime?
+  ckomNotes      String?
+  startDate      DateTime?
+  estimatedEndDate DateTime?
+  actualEndDate  DateTime?
+  notes          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  tenant        Tenant      @relation(fields: [tenantId], references: [id])
+  opportunity   Opportunity @relation(fields: [oppId], references: [id])
+  projectManager User       @relation("ProjectManager", fields: [projectManagerId], references: [id])
+
+  assignments     ProjectAssignment[]
+  tasks           ProjectTask[]
+  materialOrders  MaterialOrder[]
+  changeOrders    ChangeOrder[]
+  dailyReports    DailyReport[]
+  qcChecks        QcCheck[]
+
+  @@unique([tenantId, projectNumber])
+  @@index([tenantId, status])
+  @@map("projects")
+}
+
+model ProjectAssignment {
+  id        String @id @default(cuid())
+  projectId String
+  userId    String
+  role      String // 'field_technician', 'subcontractor'
+  status    String @default("assigned") // 'assigned', 'accepted', 'active', 'completed'
+  notes     String?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@unique([projectId, userId])
+  @@map("project_assignments")
+}
+
+model ProjectTask {
+  id           String    @id @default(cuid())
+  projectId    String
+  title        String
+  description  String?
+  assignedTo   String?
+  status       String    @default("pending") // 'pending', 'in_progress', 'completed', 'blocked'
+  priority     String    @default("medium")  // 'low', 'medium', 'high', 'urgent'
+  dueDate      DateTime?
+  completedAt  DateTime?
+  sortOrder    Int       @default(0)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, status])
+  @@map("project_tasks")
+}
+
+model MaterialOrder {
+  id              String    @id @default(cuid())
+  projectId       String
+  orderNumber     String?
+  trackingNumber  String?
+  vendor          String
+  description     String?
+  status          String    @default("pending") // 'pending', 'ordered', 'shipped', 'delivered'
+  estimatedDelivery DateTime?
+  actualDelivery  DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("material_orders")
+}
+
+model ChangeOrder {
+  id           String    @id @default(cuid())
+  projectId    String
+  coNumber     String    // CO-XXX
+  description  String
+  status       String    @default("identified") // 'identified', 'presales_review', 'survey_needed', 'bom_updated', 'sub_rfp', 'customer_review', 'approved', 'rejected', 'completed'
+  identifiedBy String
+  approvedBy   String?
+  customerSignedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("change_orders")
+}
+
+model DailyReport {
+  id          String   @id @default(cuid())
+  projectId   String
+  userId      String
+  reportDate  DateTime
+  hoursWorked Float?
+  tasksCompleted String?
+  issues      String?
+  notes       String?
+  photos      Json     @default("[]") // array of photo URLs
+  offlineId   String?  // for offline sync
+  syncedAt    DateTime?
+  createdAt   DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@index([projectId, reportDate])
+  @@map("daily_reports")
+}
+
+model QcCheck {
+  id          String   @id @default(cuid())
+  projectId   String
+  checkType   String   // e.g. 'camera_install', 'door_hardware', 'network', 'general'
+  checklist   Json     @default("[]") // array of {item, passed, notes, photo}
+  overallPass Boolean?
+  inspectedBy String
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("qc_checks")
+}
+
+// ============================================================
+// DOCUMENTS
+// ============================================================
+
+model Document {
+  id           String   @id @default(cuid())
+  tenantId     String
+  oppId        String?
+  type         String   // DocumentType
+  fileName     String
+  fileUrl      String
+  fileSize     Int?
+  version      Int      @default(1)
+  isSigned     Boolean  @default(false)
+  signedAt     DateTime?
+  signedBy     String?
+  uploadedBy   String
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id])
+  opportunity Opportunity? @relation(fields: [oppId], references: [id])
+
+  @@index([tenantId, oppId])
+  @@index([tenantId, type])
+  @@map("documents")
+}
+
+// ============================================================
+// RISK ASSESSMENT
+// ============================================================
+
+model RiskAssessment {
+  id             String   @id @default(cuid())
+  oppId          String
+  stage          String   // 'preliminary' or 'pm'
+  assessedBy     String
+  cctvScore      Float?
+  acsScore       Float?
+  equipmentScore Float?
+  installScore   Float?
+  scheduleScore  Float?  // PM stage
+  resourceScore  Float?  // PM stage
+  siteScore      Float?  // PM stage
+  customerScore  Float?  // PM stage
+  technicalScore Float?  // PM stage
+  overallScore   Float
+  riskLevel      String   // RiskLevel
+  contingencyPct Float
+  details        Json     @default("{}") // full breakdown of individual risk factors
+  notes          String?
+  isSharedWithCustomer Boolean @default(false)
+  createdAt      DateTime @default(now())
+
+  opportunity Opportunity @relation(fields: [oppId], references: [id], onDelete: Cascade)
+
+  @@index([oppId])
+  @@map("risk_assessments")
+}
+
+// ============================================================
+// VENDORS & SUBCONTRACTORS
+// ============================================================
+
+model Vendor {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  contact   String?
+  email     String?
+  phone     String?
+  website   String?
+  category  String?  // 'cameras', 'access_control', 'networking', 'av', 'sensors', 'other'
+  isActive  Boolean  @default(true)
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@map("vendors")
+}
+
+model Subcontractor {
+  id              String   @id @default(cuid())
+  tenantId        String
+  companyName     String
+  primaryContact  String?
+  email           String?
+  phone           String?
+  trades          Json     @default("[]") // array of trade specialties
+  territories     Json     @default("[]") // states/regions they cover
+  isActive        Boolean  @default(true)
+  insuranceExpiry DateTime?
+  licenseNumber   String?
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@map("subcontractors")
+}
+
+// ============================================================
+// DEVICE LIBRARY
+// ============================================================
+
+model Device {
+  id            String  @id @default(cuid())
+  manufacturer  String  // 'Hanwha', 'AXIS', 'Verkada', etc.
+  category      String  // 'camera', 'access_control', 'networking', 'av', 'sensor', 'mount', 'accessory'
+  model         String
+  partNumber    String  @unique
+  description   String?
+  resolution    String? // e.g. '4K', '5MP', '2MP'
+  formFactor    String? // e.g. 'dome', 'bullet', 'PTZ', 'fisheye'
+  indoor        Boolean?
+  outdoor       Boolean?
+  vandal        Boolean?
+  hfov          Float?  // horizontal field of view in degrees
+  maxDistance    Float?  // max detection distance in feet
+  focalLength   String? // e.g. '2.8mm', '4.6-135mm'
+  imager        String? // e.g. '1/2.8"'
+  specs         Json    @default("{}") // additional specs
+  mountOptions  Json    @default("[]") // compatible mount part numbers
+  msrp          Float?
+  isActive      Boolean @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenantDevices TenantDevice[]
+
+  @@index([manufacturer, category])
+  @@map("devices")
+}
+
+// Per-tenant device availability/pricing overrides
+model TenantDevice {
+  id        String @id @default(cuid())
+  tenantId  String
+  deviceId  String
+  isEnabled Boolean @default(true)
+  costPrice Float?
+  sellPrice Float?
+  notes     String?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  device Device @relation(fields: [deviceId], references: [id])
+
+  @@unique([tenantId, deviceId])
+  @@map("tenant_devices")
+}
+
+// ============================================================
+// PERFORMANCE SCORES
+// ============================================================
+
+model PerformanceScore {
+  id          String   @id @default(cuid())
+  userId      String
+  scoredById  String
+  category    String   // 'sales_osr', 'sales_isr', 'presales', 'pm', 'field_tech', 'customer', 'subcontractor'
+  metric      String   // specific metric name
+  score       Float
+  period      String   // e.g. '2026-02', '2026-Q1'
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  user     User @relation("ScoredUser", fields: [userId], references: [id])
+  scoredBy User @relation("ScoredBy", fields: [scoredById], references: [id])
+
+  @@index([userId, category])
+  @@map("performance_scores")
+}
+
+// ============================================================
+// NOTIFICATIONS
+// ============================================================
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  type      String    // 'opp_status_change', 'approval_request', 'project_assigned', etc.
+  title     String
+  message   String
+  link      String?   // deep link to relevant page
+  isRead    Boolean   @default(false)
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+// ============================================================
+// AUDIT LOG
+// ============================================================
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String
+  action    String   // 'create', 'update', 'delete', 'login', 'export', etc.
+  entity    String   // 'opportunity', 'survey', 'design', 'project', etc.
+  entityId  String?
+  details   Json     @default("{}")
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, entity, createdAt])
+  @@index([userId, createdAt])
+  @@map("audit_logs")
+}

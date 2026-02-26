@@ -1,0 +1,22 @@
+{
+  "name": "casdex",
+  "private": true,
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "test": "turbo test",
+    "db:generate": "pnpm --filter @casdex/db generate",
+    "db:migrate": "pnpm --filter @casdex/db migrate",
+    "db:seed": "pnpm --filter @casdex/db seed",
+    "db:studio": "pnpm --filter @casdex/db studio"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.0",
+    "typescript": "^5.7.0"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20"
+  }
+}
