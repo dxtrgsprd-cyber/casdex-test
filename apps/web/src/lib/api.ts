@@ -305,4 +305,91 @@ export const notificationsApi = {
     fetchApi('/notifications/read-all', { method: 'PUT', token }),
 };
 
+// --- Dashboard ---
+
+export interface CalendarEvent {
+  id: string;
+  type: string;
+  title: string;
+  date: string;
+  details: string;
+  link: string;
+}
+
+export interface DashboardUnassignedOpp {
+  id: string;
+  oppNumber: string;
+  customerName: string;
+  projectName: string;
+  status: string;
+  territory: string | null;
+  createdAt: string;
+  createdBy: { id: string; firstName: string; lastName: string };
+}
+
+export interface DashboardVendor {
+  id: string;
+  name: string;
+  category: string | null;
+  contact: string | null;
+  phone: string | null;
+  email: string | null;
+}
+
+export interface DashboardSubcontractor {
+  id: string;
+  companyName: string;
+  primaryContact: string | null;
+  phone: string | null;
+  email: string | null;
+  trades: string[];
+  territories: string[];
+}
+
+export interface DashboardDocument {
+  id: string;
+  type: string;
+  fileName: string;
+  version: number;
+  isSigned: boolean;
+  createdAt: string;
+  opportunity: { oppNumber: string; customerName: string } | null;
+}
+
+export interface DashboardRiskItem {
+  id: string;
+  overallScore: number;
+  riskLevel: string;
+  stage: string;
+  opportunity: {
+    id: string;
+    oppNumber: string;
+    customerName: string;
+    projectName: string;
+  };
+}
+
+export interface DashboardData {
+  metrics: {
+    oppsAssigned: number;
+    surveysScheduled: number;
+    oppsInProgress: number;
+    projectsInProgress: number;
+    oppsCompleted: { month: number; year: number; total: number };
+    oppsWon: { month: number; year: number; total: number };
+    projectsClosed: { month: number; year: number; total: number };
+  };
+  calendarEvents: CalendarEvent[];
+  unassignedOpps: DashboardUnassignedOpp[];
+  vendors: { total: number; items: DashboardVendor[] };
+  subcontractors: { total: number; items: DashboardSubcontractor[] };
+  recentDocuments: DashboardDocument[];
+  riskItems: DashboardRiskItem[];
+}
+
+export const dashboardApi = {
+  get: (token: string) =>
+    fetchApi<{ success: boolean; data: DashboardData }>('/dashboard', { token }),
+};
+
 export { ApiError };

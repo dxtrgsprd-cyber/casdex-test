@@ -4,6 +4,7 @@ import { UsersModule } from './users/users.module';
 import { TenantsModule } from './tenants/tenants.module';
 import { OpportunitiesModule } from './opportunities/opportunities.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 import { PrismaModule } from './common/prisma.module';
 
 @Module({
@@ -14,6 +15,7 @@ import { PrismaModule } from './common/prisma.module';
     TenantsModule,
     NotificationsModule,
     OpportunitiesModule,
+    DashboardModule,
   ],
 })
 export class AppModule {}

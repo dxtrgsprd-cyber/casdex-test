@@ -4,11 +4,19 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth-store';
 import { useState } from 'react';
 
-const NAV_ITEMS = [
+interface NavItem {
+  label: string;
+  href: string;
+  roles?: string[];
+}
+
+const NAV_ITEMS: NavItem[] = [
   { label: 'Opportunities', href: '/opportunities' },
   { label: 'Survey', href: '/survey' },
   { label: 'Design', href: '/design' },
   { label: 'Projects', href: '/projects' },
+  { label: 'Vendors', href: '/vendors', roles: ['admin', 'manager', 'sales', 'presales'] },
+  { label: 'Subcontractors', href: '/subcontractors', roles: ['admin', 'manager', 'project_manager'] },
   { label: 'Tools', href: '/tools' },
   { label: 'Management', href: '/management' },
 ];
@@ -16,7 +24,7 @@ const NAV_ITEMS = [
 export function TopNav() {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, tenant, availableTenants, logout, switchTenant } = useAuthStore();
+  const { user, tenant, roles, availableTenants, logout, switchTenant } = useAuthStore();
   const [showTenantSwitcher, setShowTenantSwitcher] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
 
@@ -44,22 +52,27 @@ export function TopNav() {
 
         {/* Navigation Tabs */}
         <nav className="flex items-center space-x-1 flex-1">
-          {NAV_ITEMS.map((item) => {
-            const isActive = pathname.startsWith(item.href);
-            return (
-              <button
-                key={item.href}
-                onClick={() => router.push(item.href)}
-                className={`px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-                  isActive
-                    ? 'bg-primary-50 text-primary-700'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-                }`}
-              >
-                {item.label}
-              </button>
-            );
-          })}
+          {NAV_ITEMS
+            .filter((item) => {
+              if (!item.roles) return true;
+              return item.roles.some((r) => roles.includes(r));
+            })
+            .map((item) => {
+              const isActive = pathname.startsWith(item.href);
+              return (
+                <button
+                  key={item.href}
+                  onClick={() => router.push(item.href)}
+                  className={`px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                    isActive
+                      ? 'bg-primary-50 text-primary-700'
+                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
         </nav>
 
         {/* Right side — tenant switcher + user menu + sign out */}
