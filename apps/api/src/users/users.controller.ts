@@ -40,6 +40,31 @@ export class UsersController {
     return { success: true, data: profile };
   }
 
+  // --- Global admin: manage users in a specific tenant ---
+
+  @Get('by-tenant/:tenantId')
+  @UseGuards(RolesGuard)
+  @Roles('global_admin')
+  async listTenantUsers(
+    @Param('tenantId') tenantId: string,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('pageSize', new DefaultValuePipe(100), ParseIntPipe) pageSize: number,
+  ) {
+    const result = await this.usersService.listUsers(tenantId, page, pageSize);
+    return { success: true, ...result };
+  }
+
+  @Post('by-tenant/:tenantId')
+  @UseGuards(RolesGuard)
+  @Roles('global_admin')
+  async createTenantUser(
+    @Param('tenantId') tenantId: string,
+    @Body() dto: CreateUserDto,
+  ) {
+    const result = await this.usersService.createUser(tenantId, dto, true);
+    return { success: true, data: result };
+  }
+
   // --- User management (admin/manager) ---
 
   @Get()

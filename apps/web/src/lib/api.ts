@@ -541,12 +541,12 @@ export const tenantsApi = {
 
   listUsers: (token: string, tenantId: string, page = 1, pageSize = 100) =>
     fetchApi<{ success: boolean; data: TenantUser[]; total: number }>(
-      `/tenants/${tenantId}/users?page=${page}&pageSize=${pageSize}`,
+      `/users/by-tenant/${tenantId}?page=${page}&pageSize=${pageSize}`,
       { token },
     ),
 
   createUser: (token: string, tenantId: string, data: Record<string, unknown>) =>
-    fetchApi<{ success: boolean; data: TenantUser }>(`/tenants/${tenantId}/users`, {
+    fetchApi<{ success: boolean; data: TenantUser }>(`/users/by-tenant/${tenantId}`, {
       method: 'POST',
       token,
       body: JSON.stringify(data),

@@ -6,26 +6,18 @@ import {
   Delete,
   Body,
   Param,
-  Query,
   UseGuards,
-  ParseIntPipe,
-  DefaultValuePipe,
 } from '@nestjs/common';
 import { TenantsService } from './tenants.service';
 import { CreateTenantDto, UpdateTenantDto } from './dto/tenants.dto';
-import { CreateUserDto } from '../users/dto/users.dto';
 import { CurrentUser, RequestUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
-import { UsersService } from '../users/users.service';
 
 @Controller('tenants')
 @UseGuards(RolesGuard)
 export class TenantsController {
-  constructor(
-    private tenantsService: TenantsService,
-    private usersService: UsersService,
-  ) {}
+  constructor(private tenantsService: TenantsService) {}
 
   // --- Current tenant (org admin) ---
 
@@ -70,30 +62,6 @@ export class TenantsController {
   ) {
     const role = await this.tenantsService.updateRolePermissions(user.tenantId, roleId, dto.permissions);
     return { success: true, data: role };
-  }
-
-  // --- Users within a specific tenant (global admin only) ---
-  // These must be registered BEFORE @Post() and @Get(':id') to prevent route conflicts
-
-  @Get(':id/users')
-  @Roles('global_admin')
-  async listTenantUsers(
-    @Param('id') id: string,
-    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
-    @Query('pageSize', new DefaultValuePipe(100), ParseIntPipe) pageSize: number,
-  ) {
-    const result = await this.usersService.listUsers(id, page, pageSize);
-    return { success: true, ...result };
-  }
-
-  @Post(':id/users')
-  @Roles('global_admin')
-  async createTenantUser(
-    @Param('id') id: string,
-    @Body() dto: CreateUserDto,
-  ) {
-    const result = await this.usersService.createUser(id, dto, true);
-    return { success: true, data: result };
   }
 
   // --- Roles within a specific tenant (global admin only) ---
