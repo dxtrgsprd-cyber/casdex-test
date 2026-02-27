@@ -27,14 +27,7 @@ export class TenantsController {
     private usersService: UsersService,
   ) {}
 
-  // --- Global admin only: tenant CRUD ---
-
-  @Get()
-  @Roles('global_admin', 'admin')
-  async listTenants() {
-    const tenants = await this.tenantsService.listTenants();
-    return { success: true, data: tenants };
-  }
+  // --- Current tenant (org admin) ---
 
   @Get('current')
   async getCurrentTenant(@CurrentUser() user: RequestUser) {
@@ -79,34 +72,8 @@ export class TenantsController {
     return { success: true, data: role };
   }
 
-  @Get(':id')
-  @Roles('global_admin', 'admin')
-  async getTenant(@Param('id') id: string) {
-    const tenant = await this.tenantsService.getTenant(id);
-    return { success: true, data: tenant };
-  }
-
-  @Post()
-  @Roles('global_admin')
-  async createTenant(@Body() dto: CreateTenantDto) {
-    const tenant = await this.tenantsService.createTenant(dto);
-    return { success: true, data: tenant };
-  }
-
-  @Put(':id')
-  @Roles('global_admin')
-  async updateTenant(@Param('id') id: string, @Body() dto: UpdateTenantDto) {
-    const tenant = await this.tenantsService.updateTenant(id, dto);
-    return { success: true, data: tenant };
-  }
-
-  @Delete(':id')
-  @Roles('global_admin')
-  async deleteTenant(@Param('id') id: string) {
-    return this.tenantsService.deleteTenant(id);
-  }
-
   // --- Users within a specific tenant (global admin only) ---
+  // These must be registered BEFORE @Post() and @Get(':id') to prevent route conflicts
 
   @Get(':id/users')
   @Roles('global_admin')
@@ -136,5 +103,41 @@ export class TenantsController {
   async listTenantRoles(@Param('id') id: string) {
     const roles = await this.tenantsService.listRoles(id);
     return { success: true, data: roles };
+  }
+
+  // --- Global admin: tenant CRUD ---
+
+  @Get()
+  @Roles('global_admin', 'admin')
+  async listTenants() {
+    const tenants = await this.tenantsService.listTenants();
+    return { success: true, data: tenants };
+  }
+
+  @Get(':id')
+  @Roles('global_admin', 'admin')
+  async getTenant(@Param('id') id: string) {
+    const tenant = await this.tenantsService.getTenant(id);
+    return { success: true, data: tenant };
+  }
+
+  @Post()
+  @Roles('global_admin')
+  async createTenant(@Body() dto: CreateTenantDto) {
+    const tenant = await this.tenantsService.createTenant(dto);
+    return { success: true, data: tenant };
+  }
+
+  @Put(':id')
+  @Roles('global_admin')
+  async updateTenant(@Param('id') id: string, @Body() dto: UpdateTenantDto) {
+    const tenant = await this.tenantsService.updateTenant(id, dto);
+    return { success: true, data: tenant };
+  }
+
+  @Delete(':id')
+  @Roles('global_admin')
+  async deleteTenant(@Param('id') id: string) {
+    return this.tenantsService.deleteTenant(id);
   }
 }
