@@ -59,17 +59,9 @@ COPY --from=builder /app/packages/auth/package.json packages/auth/
 # Copy Prisma schema + migrations + seed script for runtime
 COPY --from=builder /app/packages/db/prisma/ packages/db/prisma/
 
-# Copy generated Prisma client
-COPY --from=builder /app/node_modules/.pnpm/@prisma+client*/  node_modules/.pnpm/@prisma+client*/
-COPY --from=builder /app/node_modules/@prisma/ node_modules/@prisma/
-COPY --from=builder /app/node_modules/prisma/ node_modules/prisma/
-
-# Copy all node_modules from builder (need tsx, bcryptjs for seed script)
+# Copy all node_modules from builder (includes Prisma client, prisma CLI, tsx, bcryptjs)
 COPY --from=builder /app/node_modules/ node_modules/
 COPY --from=builder /app/packages/db/node_modules/ packages/db/node_modules/
-
-# Install production dependencies only
-RUN pnpm install --frozen-lockfile --prod
 
 ENV NODE_ENV=production
 
