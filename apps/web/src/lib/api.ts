@@ -1,4 +1,5 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+const rawBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+const API_BASE = rawBase.endsWith('/api') ? rawBase : `${rawBase.replace(/\/+$/, '')}/api`;
 
 interface FetchOptions extends RequestInit {
   token?: string;
