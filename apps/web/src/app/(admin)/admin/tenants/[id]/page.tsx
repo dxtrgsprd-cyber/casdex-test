@@ -355,6 +355,7 @@ function UsersTab({
       {showAddModal && (
         <AddUserModal
           tenantId={tenant.id}
+          tenantRoles={tenant.roles || []}
           onClose={() => setShowAddModal(false)}
           onCreated={() => {
             setShowAddModal(false);
@@ -371,10 +372,12 @@ function UsersTab({
 
 function AddUserModal({
   tenantId,
+  tenantRoles,
   onClose,
   onCreated,
 }: {
   tenantId: string;
+  tenantRoles: Array<{ id: string; name: string; displayName: string; isDefault: boolean; isCustom: boolean; permissions: Array<{ id: string; module: string; action: string; allowed: boolean }> }>;
   onClose: () => void;
   onCreated: () => void;
 }) {
@@ -394,12 +397,25 @@ function AddUserModal({
   });
 
   useEffect(() => {
+    // Use roles already loaded with tenant data, or fetch from API as fallback
+    if (tenantRoles.length > 0) {
+      setRoles(tenantRoles);
+      const adminRole = tenantRoles.find((r) => r.name === 'admin');
+      if (adminRole) {
+        setForm((prev) => ({ ...prev, roleId: adminRole.id }));
+      } else {
+        setForm((prev) => ({ ...prev, roleId: tenantRoles[0].id }));
+      }
+      setRolesLoading(false);
+      return;
+    }
+
+    // Fallback: fetch from API
     if (!accessToken) return;
     setRolesLoading(true);
     tenantsApi.listRoles(accessToken, tenantId)
       .then((res) => {
         setRoles(res.data);
-        // Default to admin role
         const adminRole = res.data.find((r) => r.name === 'admin');
         if (adminRole) {
           setForm((prev) => ({ ...prev, roleId: adminRole.id }));
@@ -407,9 +423,12 @@ function AddUserModal({
           setForm((prev) => ({ ...prev, roleId: res.data[0].id }));
         }
       })
-      .catch(() => setRoles([]))
+      .catch((err) => {
+        setRoles([]);
+        setError(err instanceof Error ? err.message : 'Failed to load roles');
+      })
       .finally(() => setRolesLoading(false));
-  }, [accessToken, tenantId]);
+  }, [accessToken, tenantId, tenantRoles]);
 
   function updateField(field: string, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
