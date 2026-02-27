@@ -65,14 +65,6 @@ export function AdminNav() {
 
         {/* Right side */}
         <div className="flex items-center space-x-3">
-          {/* Switch to App */}
-          <button
-            onClick={() => router.push('/')}
-            className="text-xs text-sidebar-text hover:text-white px-2 py-1 rounded border border-gray-600 hover:border-gray-500 transition-colors"
-          >
-            Go to App
-          </button>
-
           {/* User Menu */}
           <div className="relative">
             <button
