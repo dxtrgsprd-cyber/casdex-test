@@ -36,38 +36,25 @@ RUN pnpm --filter @casdex/db build
 RUN pnpm --filter @casdex/api build
 
 # ── Stage 3: Production image ──────────────────────────────────────
-FROM node:22-slim AS runner
-
-RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
-RUN apt-get update && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
-
-# Copy workspace config
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
-
-# Copy built output and package.json for each workspace
-COPY --from=builder /app/apps/api/dist/ apps/api/dist/
-COPY --from=builder /app/apps/api/package.json apps/api/
-COPY --from=builder /app/packages/db/dist/ packages/db/dist/
-COPY --from=builder /app/packages/db/package.json packages/db/
-COPY --from=builder /app/packages/shared/dist/ packages/shared/dist/
-COPY --from=builder /app/packages/shared/package.json packages/shared/
-COPY --from=builder /app/packages/auth/dist/ packages/auth/dist/
-COPY --from=builder /app/packages/auth/package.json packages/auth/
+FROM base AS runner
 
 # Copy Prisma schema + migrations + seed script for runtime
 COPY --from=builder /app/packages/db/prisma/ packages/db/prisma/
 
-# Copy all node_modules from builder (includes Prisma client, prisma CLI, tsx, bcryptjs)
-COPY --from=builder /app/node_modules/ node_modules/
-COPY --from=builder /app/packages/db/node_modules/ packages/db/node_modules/
+# Generate Prisma client with the actual schema
+RUN pnpm --filter @casdex/db exec prisma generate
+
+# Copy built output for each workspace
+COPY --from=builder /app/apps/api/dist/ apps/api/dist/
+COPY --from=builder /app/packages/db/dist/ packages/db/dist/
+COPY --from=builder /app/packages/shared/dist/ packages/shared/dist/
+COPY --from=builder /app/packages/auth/dist/ packages/auth/dist/
 
 ENV NODE_ENV=production
 
 EXPOSE 4000
 
 # Run migrations, seed database, then start the API
-CMD npx prisma migrate deploy --schema=packages/db/prisma/schema.prisma && \
-    npx tsx packages/db/prisma/seed.ts && \
+CMD pnpm --filter @casdex/db exec prisma migrate deploy && \
+    pnpm --filter @casdex/db exec tsx prisma/seed.ts && \
     node apps/api/dist/main.js
