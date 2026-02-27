@@ -414,6 +414,28 @@ export interface Tenant {
   }>;
 }
 
+export interface TenantUser {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  phone: string | null;
+  title: string | null;
+  isActive: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+  role: { id: string; name: string; displayName: string };
+}
+
+export interface TenantRole {
+  id: string;
+  name: string;
+  displayName: string;
+  isDefault: boolean;
+  isCustom: boolean;
+  permissions: Array<{ id: string; module: string; action: string; allowed: boolean }>;
+}
+
 export const tenantsApi = {
   list: (token: string) =>
     fetchApi<{ success: boolean; data: Tenant[] }>('/tenants', { token }),
@@ -438,6 +460,24 @@ export const tenantsApi = {
   delete: (token: string, id: string) =>
     fetchApi<{ success: boolean; message: string }>(`/tenants/${id}`, {
       method: 'DELETE',
+      token,
+    }),
+
+  listUsers: (token: string, tenantId: string, page = 1, pageSize = 100) =>
+    fetchApi<{ success: boolean; data: TenantUser[]; total: number }>(
+      `/tenants/${tenantId}/users?page=${page}&pageSize=${pageSize}`,
+      { token },
+    ),
+
+  createUser: (token: string, tenantId: string, data: Record<string, unknown>) =>
+    fetchApi<{ success: boolean; data: TenantUser }>(`/tenants/${tenantId}/users`, {
+      method: 'POST',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  listRoles: (token: string, tenantId: string) =>
+    fetchApi<{ success: boolean; data: TenantRole[] }>(`/tenants/${tenantId}/roles`, {
       token,
     }),
 };

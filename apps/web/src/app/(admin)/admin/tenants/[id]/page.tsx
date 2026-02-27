@@ -1,25 +1,12 @@
 'use client';
 
-import { useEffect, useState, FormEvent } from 'react';
+import { useEffect, useState, useCallback, FormEvent } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth-store';
-import { tenantsApi, usersApi, Tenant } from '@/lib/api';
+import { tenantsApi, Tenant, TenantUser, TenantRole } from '@/lib/api';
 
 const TABS = ['General', 'Users', 'Roles'] as const;
 type Tab = (typeof TABS)[number];
-
-interface TenantUserRecord {
-  id: string;
-  email: string;
-  firstName: string;
-  lastName: string;
-  phone: string | null;
-  title: string | null;
-  isActive: boolean;
-  lastLoginAt: string | null;
-  createdAt: string;
-  role: { id: string; name: string; displayName: string };
-}
 
 export default function TenantDetailPage() {
   const params = useParams();
@@ -33,20 +20,12 @@ export default function TenantDetailPage() {
     initialTab === 'users' ? 'Users' : initialTab === 'roles' ? 'Roles' : 'General',
   );
   const [tenant, setTenant] = useState<Tenant | null>(null);
-  const [users, setUsers] = useState<TenantUserRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [usersLoading, setUsersLoading] = useState(false);
 
   useEffect(() => {
     if (!accessToken || !tenantId) return;
     loadTenant();
   }, [accessToken, tenantId]);
-
-  useEffect(() => {
-    if (activeTab === 'Users' && accessToken && tenantId) {
-      loadUsers();
-    }
-  }, [activeTab, accessToken, tenantId]);
 
   async function loadTenant() {
     if (!accessToken) return;
@@ -58,21 +37,6 @@ export default function TenantDetailPage() {
       router.push('/admin/tenants');
     }
     setLoading(false);
-  }
-
-  async function loadUsers() {
-    if (!accessToken) return;
-    setUsersLoading(true);
-    try {
-      // Global admins can access any tenant's users through the users endpoint
-      // We need to use the tenant-scoped user list
-      const res = await usersApi.list(accessToken, 1, 100);
-      setUsers(res.data as unknown as TenantUserRecord[]);
-    } catch {
-      // Users might not be accessible for this tenant context
-      setUsers([]);
-    }
-    setUsersLoading(false);
   }
 
   if (loading) {
@@ -128,11 +92,7 @@ export default function TenantDetailPage() {
             <GeneralTab tenant={tenant} onUpdate={loadTenant} />
           )}
           {activeTab === 'Users' && (
-            <UsersTab
-              tenant={tenant}
-              users={users}
-              loading={usersLoading}
-            />
+            <UsersTab tenant={tenant} onUpdate={loadTenant} />
           )}
           {activeTab === 'Roles' && (
             <RolesTab tenant={tenant} />
@@ -287,20 +247,47 @@ function GeneralTab({
 
 function UsersTab({
   tenant,
-  users,
-  loading,
+  onUpdate,
 }: {
   tenant: Tenant;
-  users: TenantUserRecord[];
-  loading: boolean;
+  onUpdate: () => void;
 }) {
+  const { accessToken } = useAuthStore();
+  const [users, setUsers] = useState<TenantUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAddModal, setShowAddModal] = useState(false);
+
+  const loadUsers = useCallback(async () => {
+    if (!accessToken) return;
+    setLoading(true);
+    try {
+      const res = await tenantsApi.listUsers(accessToken, tenant.id);
+      setUsers(res.data);
+    } catch {
+      setUsers([]);
+    }
+    setLoading(false);
+  }, [accessToken, tenant.id]);
+
+  useEffect(() => {
+    loadUsers();
+  }, [loadUsers]);
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-gray-900">Users</h2>
-        <span className="text-sm text-gray-500">
-          {tenant._count?.users || 0} user{(tenant._count?.users || 0) !== 1 ? 's' : ''}
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-gray-500">
+            {tenant._count?.users || 0} user{(tenant._count?.users || 0) !== 1 ? 's' : ''}
+          </span>
+          <button
+            className="btn-primary text-sm"
+            onClick={() => setShowAddModal(true)}
+          >
+            Add User
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -355,14 +342,222 @@ function UsersTab({
         </div>
       ) : (
         <div className="card p-8 text-center">
-          <p className="text-sm text-gray-500">
-            User management for this organization is available through the regular app.
-          </p>
-          <p className="text-xs text-gray-400 mt-2">
-            Sign in to this organization as an admin to manage its users directly.
-          </p>
+          <p className="text-sm text-gray-500 mb-3">No users in this organization yet.</p>
+          <button
+            className="btn-primary text-sm"
+            onClick={() => setShowAddModal(true)}
+          >
+            Add the first user
+          </button>
         </div>
       )}
+
+      {showAddModal && (
+        <AddUserModal
+          tenantId={tenant.id}
+          onClose={() => setShowAddModal(false)}
+          onCreated={() => {
+            setShowAddModal(false);
+            loadUsers();
+            onUpdate();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// --- Add User Modal ---
+
+function AddUserModal({
+  tenantId,
+  onClose,
+  onCreated,
+}: {
+  tenantId: string;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const { accessToken } = useAuthStore();
+  const [roles, setRoles] = useState<TenantRole[]>([]);
+  const [rolesLoading, setRolesLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [form, setForm] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    roleId: '',
+    phone: '',
+    title: '',
+    password: '',
+  });
+
+  useEffect(() => {
+    if (!accessToken) return;
+    setRolesLoading(true);
+    tenantsApi.listRoles(accessToken, tenantId)
+      .then((res) => {
+        setRoles(res.data);
+        // Default to admin role
+        const adminRole = res.data.find((r) => r.name === 'admin');
+        if (adminRole) {
+          setForm((prev) => ({ ...prev, roleId: adminRole.id }));
+        } else if (res.data.length > 0) {
+          setForm((prev) => ({ ...prev, roleId: res.data[0].id }));
+        }
+      })
+      .catch(() => setRoles([]))
+      .finally(() => setRolesLoading(false));
+  }, [accessToken, tenantId]);
+
+  function updateField(field: string, value: string) {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!accessToken) return;
+    setError('');
+    setIsLoading(true);
+
+    try {
+      const payload: Record<string, unknown> = {
+        firstName: form.firstName,
+        lastName: form.lastName,
+        email: form.email,
+        roleId: form.roleId,
+      };
+
+      if (form.phone.trim()) payload.phone = form.phone.trim();
+      if (form.title.trim()) payload.title = form.title.trim();
+      if (form.password.trim()) payload.password = form.password.trim();
+
+      await tenantsApi.createUser(accessToken, tenantId, payload);
+      onCreated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create user');
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 bg-black/30">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[80vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+          <h2 className="text-lg font-semibold text-gray-900">Add User</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">
+            x
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="label">First Name *</label>
+              <input
+                className="input-field"
+                value={form.firstName}
+                onChange={(e) => updateField('firstName', e.target.value)}
+                required
+              />
+            </div>
+            <div>
+              <label className="label">Last Name *</label>
+              <input
+                className="input-field"
+                value={form.lastName}
+                onChange={(e) => updateField('lastName', e.target.value)}
+                required
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="label">Email *</label>
+            <input
+              className="input-field"
+              type="email"
+              value={form.email}
+              onChange={(e) => updateField('email', e.target.value)}
+              required
+            />
+            <p className="text-xs text-gray-400 mt-1">
+              If this email already exists in the system, the user will be added to this organization with the selected role.
+            </p>
+          </div>
+
+          <div>
+            <label className="label">Role *</label>
+            {rolesLoading ? (
+              <p className="text-sm text-gray-400">Loading roles...</p>
+            ) : (
+              <select
+                className="input-field"
+                value={form.roleId}
+                onChange={(e) => updateField('roleId', e.target.value)}
+                required
+              >
+                {roles.map((role) => (
+                  <option key={role.id} value={role.id}>
+                    {role.displayName}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="label">Phone</label>
+              <input
+                className="input-field"
+                value={form.phone}
+                onChange={(e) => updateField('phone', e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="label">Job Title</label>
+              <input
+                className="input-field"
+                value={form.title}
+                onChange={(e) => updateField('title', e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="label">Password</label>
+            <input
+              className="input-field"
+              type="password"
+              value={form.password}
+              onChange={(e) => updateField('password', e.target.value)}
+              minLength={8}
+              placeholder="Leave blank to generate invite link"
+            />
+            <p className="text-xs text-gray-400 mt-1">
+              If left blank, an invite link will be generated for the user to set their own password.
+            </p>
+          </div>
+
+          {error && (
+            <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+              {error}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3 pt-2">
+            <button type="button" className="btn-secondary" onClick={onClose}>
+              Cancel
+            </button>
+            <button type="submit" className="btn-primary" disabled={isLoading || rolesLoading}>
+              {isLoading ? 'Adding...' : 'Add User'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
