@@ -1,24 +1,19 @@
 'use client';
 
-import { useEffect, useState, FormEvent } from 'react';
+import { useEffect, useState, useCallback, FormEvent } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth-store';
-import { tenantsApi, usersApi, Tenant } from '@/lib/api';
+import { tenantsApi, Tenant, TenantUserRecord } from '@/lib/api';
 
 const TABS = ['General', 'Users', 'Roles'] as const;
 type Tab = (typeof TABS)[number];
 
-interface TenantUserRecord {
+interface TenantRole {
   id: string;
-  email: string;
-  firstName: string;
-  lastName: string;
-  phone: string | null;
-  title: string | null;
-  isActive: boolean;
-  lastLoginAt: string | null;
-  createdAt: string;
-  role: { id: string; name: string; displayName: string };
+  name: string;
+  displayName: string;
+  isDefault: boolean;
+  isCustom: boolean;
 }
 
 export default function TenantDetailPage() {
@@ -33,20 +28,12 @@ export default function TenantDetailPage() {
     initialTab === 'users' ? 'Users' : initialTab === 'roles' ? 'Roles' : 'General',
   );
   const [tenant, setTenant] = useState<Tenant | null>(null);
-  const [users, setUsers] = useState<TenantUserRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [usersLoading, setUsersLoading] = useState(false);
 
   useEffect(() => {
     if (!accessToken || !tenantId) return;
     loadTenant();
   }, [accessToken, tenantId]);
-
-  useEffect(() => {
-    if (activeTab === 'Users' && accessToken && tenantId) {
-      loadUsers();
-    }
-  }, [activeTab, accessToken, tenantId]);
 
   async function loadTenant() {
     if (!accessToken) return;
@@ -58,21 +45,6 @@ export default function TenantDetailPage() {
       router.push('/admin/tenants');
     }
     setLoading(false);
-  }
-
-  async function loadUsers() {
-    if (!accessToken) return;
-    setUsersLoading(true);
-    try {
-      // Global admins can access any tenant's users through the users endpoint
-      // We need to use the tenant-scoped user list
-      const res = await usersApi.list(accessToken, 1, 100);
-      setUsers(res.data as unknown as TenantUserRecord[]);
-    } catch {
-      // Users might not be accessible for this tenant context
-      setUsers([]);
-    }
-    setUsersLoading(false);
   }
 
   if (loading) {
@@ -128,11 +100,7 @@ export default function TenantDetailPage() {
             <GeneralTab tenant={tenant} onUpdate={loadTenant} />
           )}
           {activeTab === 'Users' && (
-            <UsersTab
-              tenant={tenant}
-              users={users}
-              loading={usersLoading}
-            />
+            <UsersTab tenant={tenant} onUpdate={loadTenant} />
           )}
           {activeTab === 'Roles' && (
             <RolesTab tenant={tenant} />
@@ -287,20 +255,47 @@ function GeneralTab({
 
 function UsersTab({
   tenant,
-  users,
-  loading,
+  onUpdate,
 }: {
   tenant: Tenant;
-  users: TenantUserRecord[];
-  loading: boolean;
+  onUpdate: () => void;
 }) {
+  const { accessToken } = useAuthStore();
+  const [users, setUsers] = useState<TenantUserRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAddModal, setShowAddModal] = useState(false);
+
+  const loadUsers = useCallback(async () => {
+    if (!accessToken) return;
+    setLoading(true);
+    try {
+      const res = await tenantsApi.listUsers(accessToken, tenant.id);
+      setUsers(res.data);
+    } catch {
+      setUsers([]);
+    }
+    setLoading(false);
+  }, [accessToken, tenant.id]);
+
+  useEffect(() => {
+    loadUsers();
+  }, [loadUsers]);
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-gray-900">Users</h2>
-        <span className="text-sm text-gray-500">
-          {tenant._count?.users || 0} user{(tenant._count?.users || 0) !== 1 ? 's' : ''}
-        </span>
+        <div className="flex items-center space-x-3">
+          <span className="text-sm text-gray-500">
+            {users.length} user{users.length !== 1 ? 's' : ''}
+          </span>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="btn-primary text-sm"
+          >
+            Add User
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -325,6 +320,9 @@ function UsersTab({
                 >
                   <td className="px-4 py-3 font-medium text-gray-900">
                     {user.firstName} {user.lastName}
+                    {user.title && (
+                      <span className="block text-xs text-gray-500 font-normal">{user.title}</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-gray-500">{user.email}</td>
                   <td className="px-4 py-3">
@@ -355,14 +353,254 @@ function UsersTab({
         </div>
       ) : (
         <div className="card p-8 text-center">
-          <p className="text-sm text-gray-500">
-            User management for this organization is available through the regular app.
-          </p>
+          <p className="text-sm text-gray-500">No users in this organization yet.</p>
           <p className="text-xs text-gray-400 mt-2">
-            Sign in to this organization as an admin to manage its users directly.
+            Click &quot;Add User&quot; to create the first user for this organization.
           </p>
         </div>
       )}
+
+      {showAddModal && (
+        <AddUserToOrgModal
+          tenantId={tenant.id}
+          tenantName={tenant.name}
+          onClose={() => setShowAddModal(false)}
+          onSuccess={() => {
+            setShowAddModal(false);
+            loadUsers();
+            onUpdate();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// --- Add User to Org Modal ---
+
+function AddUserToOrgModal({
+  tenantId,
+  tenantName,
+  onClose,
+  onSuccess,
+}: {
+  tenantId: string;
+  tenantName: string;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const { accessToken } = useAuthStore();
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [roles, setRoles] = useState<TenantRole[]>([]);
+  const [rolesLoading, setRolesLoading] = useState(true);
+  const [form, setForm] = useState({
+    email: '',
+    firstName: '',
+    lastName: '',
+    phone: '',
+    title: '',
+    roleId: '',
+    password: '',
+  });
+
+  useEffect(() => {
+    if (!accessToken) return;
+    loadRoles();
+  }, [accessToken]);
+
+  async function loadRoles() {
+    if (!accessToken) return;
+    setRolesLoading(true);
+    try {
+      const res = await tenantsApi.listRoles(accessToken, tenantId);
+      setRoles(res.data);
+      // Default to admin role if available
+      const adminRole = res.data.find((r) => r.name === 'admin');
+      if (adminRole) {
+        setForm((f) => ({ ...f, roleId: adminRole.id }));
+      } else if (res.data.length > 0) {
+        setForm((f) => ({ ...f, roleId: res.data[0].id }));
+      }
+    } catch {
+      // roles fetch failed
+    }
+    setRolesLoading(false);
+  }
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!accessToken || !form.roleId) return;
+
+    setError('');
+    setSaving(true);
+
+    try {
+      await tenantsApi.addUser(accessToken, tenantId, {
+        email: form.email,
+        firstName: form.firstName,
+        lastName: form.lastName,
+        roleId: form.roleId,
+        phone: form.phone || undefined,
+        title: form.title || undefined,
+        password: form.password || undefined,
+      });
+      onSuccess();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add user');
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
+        <div className="flex items-center justify-between px-6 py-4 border-b">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">Add User</h2>
+            <p className="text-xs text-gray-500">{tenantName}</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 text-xl leading-none"
+          >
+            x
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {error && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+              {error}
+            </div>
+          )}
+
+          <p className="text-sm text-gray-500">
+            Create a new user or add an existing user to this organization. If the email already exists, the user will be added with the selected role.
+          </p>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                First Name <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                value={form.firstName}
+                onChange={(e) => setForm({ ...form, firstName: e.target.value })}
+                className="input-field w-full"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Last Name <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                value={form.lastName}
+                onChange={(e) => setForm({ ...form, lastName: e.target.value })}
+                className="input-field w-full"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Email <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="email"
+              required
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              className="input-field w-full"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Role <span className="text-red-500">*</span>
+            </label>
+            {rolesLoading ? (
+              <p className="text-sm text-gray-400">Loading roles...</p>
+            ) : (
+              <select
+                required
+                value={form.roleId}
+                onChange={(e) => setForm({ ...form, roleId: e.target.value })}
+                className="input-field w-full"
+              >
+                <option value="">Select a role...</option>
+                {roles.map((role) => (
+                  <option key={role.id} value={role.id}>
+                    {role.displayName}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Phone
+            </label>
+            <input
+              type="text"
+              value={form.phone}
+              onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              className="input-field w-full"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Job Title
+            </label>
+            <input
+              type="text"
+              value={form.title}
+              onChange={(e) => setForm({ ...form, title: e.target.value })}
+              className="input-field w-full"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Password
+            </label>
+            <input
+              type="password"
+              value={form.password}
+              onChange={(e) => setForm({ ...form, password: e.target.value })}
+              className="input-field w-full"
+              minLength={8}
+              placeholder="Leave blank to send invite link"
+            />
+            <p className="text-xs text-gray-400 mt-1">
+              If left blank, the user will receive an invite link to set their own password.
+            </p>
+          </div>
+
+          <div className="flex justify-end space-x-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-sm text-gray-700 border rounded hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving || !form.roleId}
+              className="btn-primary text-sm disabled:opacity-50"
+            >
+              {saving ? 'Adding...' : 'Add User'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

@@ -6,10 +6,15 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
+  ParseIntPipe,
+  DefaultValuePipe,
 } from '@nestjs/common';
 import { TenantsService } from './tenants.service';
+import { UsersService } from '../users/users.service';
 import { CreateTenantDto, UpdateTenantDto } from './dto/tenants.dto';
+import { CreateUserDto } from '../users/dto/users.dto';
 import { CurrentUser, RequestUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -17,7 +22,10 @@ import { RolesGuard } from '../common/guards/roles.guard';
 @Controller('tenants')
 @UseGuards(RolesGuard)
 export class TenantsController {
-  constructor(private tenantsService: TenantsService) {}
+  constructor(
+    private tenantsService: TenantsService,
+    private usersService: UsersService,
+  ) {}
 
   // --- Global admin only: tenant CRUD ---
 
@@ -53,6 +61,38 @@ export class TenantsController {
   @Roles('global_admin')
   async deleteTenant(@Param('id') id: string) {
     return this.tenantsService.deleteTenant(id);
+  }
+
+  // --- Users within a specific tenant (global admin) ---
+
+  @Get(':id/users')
+  @Roles('global_admin')
+  async listTenantUsers(
+    @Param('id') tenantId: string,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('pageSize', new DefaultValuePipe(100), ParseIntPipe) pageSize: number,
+  ) {
+    const result = await this.usersService.listUsers(tenantId, page, pageSize);
+    return { success: true, ...result };
+  }
+
+  @Post(':id/users')
+  @Roles('global_admin')
+  async addUserToTenant(
+    @Param('id') tenantId: string,
+    @Body() dto: CreateUserDto,
+  ) {
+    const result = await this.usersService.createUser(tenantId, dto, true);
+    return { success: true, data: result };
+  }
+
+  // --- Roles within a specific tenant (global admin) ---
+
+  @Get(':id/roles')
+  @Roles('global_admin')
+  async listTenantRoles(@Param('id') tenantId: string) {
+    const roles = await this.tenantsService.listRoles(tenantId);
+    return { success: true, data: roles };
   }
 
   // --- Roles within current tenant ---

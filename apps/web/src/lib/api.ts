@@ -479,6 +479,39 @@ export const tenantsApi = {
       method: 'DELETE',
       token,
     }),
+
+  // Users within a specific tenant (global admin)
+  listUsers: (token: string, tenantId: string, page = 1, pageSize = 100) =>
+    fetchApi<{ success: boolean; data: TenantUserRecord[]; total: number }>(
+      `/tenants/${tenantId}/users?page=${page}&pageSize=${pageSize}`,
+      { token },
+    ),
+
+  addUser: (token: string, tenantId: string, data: { email: string; firstName: string; lastName: string; roleId: string; phone?: string; title?: string; password?: string }) =>
+    fetchApi<{ success: boolean; data: TenantUserRecord }>(
+      `/tenants/${tenantId}/users`,
+      { method: 'POST', token, body: JSON.stringify(data) },
+    ),
+
+  // Roles for a specific tenant (global admin)
+  listRoles: (token: string, tenantId: string) =>
+    fetchApi<{ success: boolean; data: Array<{ id: string; name: string; displayName: string; isDefault: boolean; isCustom: boolean }> }>(
+      `/tenants/${tenantId}/roles`,
+      { token },
+    ),
 };
+
+export interface TenantUserRecord {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  phone: string | null;
+  title: string | null;
+  isActive: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+  role: { id: string; name: string; displayName: string };
+}
 
 export { ApiError };
