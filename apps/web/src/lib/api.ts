@@ -115,35 +115,111 @@ export const authApi = {
 
 // --- Users ---
 
+export interface OrgUser {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  phone: string | null;
+  title: string | null;
+  avatar: string | null;
+  isActive: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+  role: { id: string; name: string; displayName: string };
+}
+
+export interface OrgRole {
+  id: string;
+  name: string;
+  displayName: string;
+  tenantId: string;
+  isDefault: boolean;
+  isCustom: boolean;
+  createdAt: string;
+  updatedAt: string;
+  permissions: Array<{ id: string; roleId: string; module: string; action: string; allowed: boolean }>;
+}
+
+export interface OrgTenantDetail {
+  id: string;
+  name: string;
+  slug: string;
+  isActive: boolean;
+  settings: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  roles: OrgRole[];
+  _count: { users: number; opportunities: number; projects: number };
+}
+
 export const usersApi = {
   me: (token: string) =>
     fetchApi<{ success: boolean; data: unknown }>('/users/me', { token }),
 
   list: (token: string, page = 1, pageSize = 25) =>
-    fetchApi<{ success: boolean; data: unknown[]; total: number }>(
+    fetchApi<{ success: boolean; data: OrgUser[]; total: number; page: number; pageSize: number; totalPages: number }>(
       `/users?page=${page}&pageSize=${pageSize}`,
       { token },
     ),
 
   get: (token: string, id: string) =>
-    fetchApi<{ success: boolean; data: unknown }>(`/users/${id}`, { token }),
+    fetchApi<{ success: boolean; data: OrgUser }>(`/users/${id}`, { token }),
 
   create: (token: string, data: Record<string, unknown>) =>
-    fetchApi<{ success: boolean; data: unknown }>('/users', {
+    fetchApi<{ success: boolean; data: OrgUser }>('/users', {
       method: 'POST',
       token,
       body: JSON.stringify(data),
     }),
 
   update: (token: string, id: string, data: Record<string, unknown>) =>
-    fetchApi<{ success: boolean; data: unknown }>(`/users/${id}`, {
+    fetchApi<{ success: boolean; data: OrgUser }>(`/users/${id}`, {
       method: 'PUT',
       token,
       body: JSON.stringify(data),
     }),
 
+  updateRole: (token: string, id: string, roleId: string) =>
+    fetchApi<{ success: boolean; data: OrgUser }>(`/users/${id}/role`, {
+      method: 'PUT',
+      token,
+      body: JSON.stringify({ roleId }),
+    }),
+
   delete: (token: string, id: string) =>
-    fetchApi(`/users/${id}`, { method: 'DELETE', token }),
+    fetchApi<{ success: boolean; message: string }>(`/users/${id}`, { method: 'DELETE', token }),
+};
+
+// --- Org Admin ---
+
+export const orgApi = {
+  getTenant: (token: string) =>
+    fetchApi<{ success: boolean; data: OrgTenantDetail }>('/tenants/current', { token }),
+
+  updateTenant: (token: string, data: { name?: string; settings?: Record<string, unknown> }) =>
+    fetchApi<{ success: boolean; data: OrgTenantDetail }>('/tenants/current', {
+      method: 'PUT',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  listRoles: (token: string) =>
+    fetchApi<{ success: boolean; data: OrgRole[] }>('/tenants/current/roles', { token }),
+
+  createRole: (token: string, data: { name: string; displayName: string }) =>
+    fetchApi<{ success: boolean; data: OrgRole }>('/tenants/current/roles', {
+      method: 'POST',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  updateRolePermissions: (token: string, roleId: string, permissions: Array<{ module: string; action: string; allowed: boolean }>) =>
+    fetchApi<{ success: boolean; data: OrgRole }>(`/tenants/current/roles/${roleId}/permissions`, {
+      method: 'PUT',
+      token,
+      body: JSON.stringify({ permissions }),
+    }),
 };
 
 // --- Opportunities ---

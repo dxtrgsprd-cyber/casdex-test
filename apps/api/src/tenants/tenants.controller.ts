@@ -36,10 +36,47 @@ export class TenantsController {
     return { success: true, data: tenants };
   }
 
+  @Get('current')
+  async getCurrentTenant(@CurrentUser() user: RequestUser) {
+    const tenant = await this.tenantsService.getTenant(user.tenantId);
+    return { success: true, data: tenant };
+  }
+
+  @Put('current')
+  @Roles('admin')
+  async updateCurrentTenant(
+    @CurrentUser() user: RequestUser,
+    @Body() dto: { name?: string; settings?: Record<string, unknown> },
+  ) {
+    const tenant = await this.tenantsService.updateTenantSettings(user.tenantId, dto.name, dto.settings);
+    return { success: true, data: tenant };
+  }
+
   @Get('current/roles')
   async listCurrentTenantRoles(@CurrentUser() user: RequestUser) {
     const roles = await this.tenantsService.listRoles(user.tenantId);
     return { success: true, data: roles };
+  }
+
+  @Post('current/roles')
+  @Roles('admin')
+  async createCurrentTenantRole(
+    @CurrentUser() user: RequestUser,
+    @Body() dto: { name: string; displayName: string },
+  ) {
+    const role = await this.tenantsService.createCustomRole(user.tenantId, dto.name, dto.displayName);
+    return { success: true, data: role };
+  }
+
+  @Put('current/roles/:roleId/permissions')
+  @Roles('admin')
+  async updateCurrentTenantRolePermissions(
+    @CurrentUser() user: RequestUser,
+    @Param('roleId') roleId: string,
+    @Body() dto: { permissions: Array<{ module: string; action: string; allowed: boolean }> },
+  ) {
+    const role = await this.tenantsService.updateRolePermissions(user.tenantId, roleId, dto.permissions);
+    return { success: true, data: role };
   }
 
   @Get(':id')

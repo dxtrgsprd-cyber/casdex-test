@@ -212,7 +212,14 @@ export class TenantsService {
   }
 
   async createCustomRole(tenantId: string, name: string, displayName: string) {
-    return this.prisma.role.create({
+    const existing = await this.prisma.role.findUnique({
+      where: { tenantId_name: { tenantId, name } },
+    });
+    if (existing) {
+      throw new ConflictException(`Role "${name}" already exists in this organization`);
+    }
+
+    const role = await this.prisma.role.create({
       data: {
         tenantId,
         name,
@@ -220,5 +227,73 @@ export class TenantsService {
         isCustom: true,
       },
     });
+
+    // Create default permission entries (all denied) so the matrix is complete
+    const permData = [];
+    for (const module of ['opportunities', 'survey', 'design', 'projects', 'tools', 'management']) {
+      for (const action of ['create', 'read', 'update', 'delete']) {
+        permData.push({ roleId: role.id, module, action, allowed: false });
+      }
+    }
+    await this.prisma.rolePermission.createMany({ data: permData });
+
+    return this.prisma.role.findUnique({
+      where: { id: role.id },
+      include: { permissions: true },
+    });
+  }
+
+  async updateRolePermissions(
+    tenantId: string,
+    roleId: string,
+    permissions: Array<{ module: string; action: string; allowed: boolean }>,
+  ) {
+    const role = await this.prisma.role.findUnique({ where: { id: roleId } });
+    if (!role || role.tenantId !== tenantId) {
+      throw new NotFoundException('Role not found in this organization');
+    }
+
+    // Upsert each permission
+    for (const perm of permissions) {
+      await this.prisma.rolePermission.upsert({
+        where: {
+          roleId_module_action: {
+            roleId,
+            module: perm.module,
+            action: perm.action,
+          },
+        },
+        update: { allowed: perm.allowed },
+        create: {
+          roleId,
+          module: perm.module,
+          action: perm.action,
+          allowed: perm.allowed,
+        },
+      });
+    }
+
+    return this.prisma.role.findUnique({
+      where: { id: roleId },
+      include: { permissions: true },
+    });
+  }
+
+  async updateTenantSettings(id: string, name?: string, settings?: Record<string, unknown>) {
+    const tenant = await this.prisma.tenant.findUnique({ where: { id } });
+    if (!tenant) {
+      throw new NotFoundException('Tenant not found');
+    }
+
+    const updateData: Record<string, unknown> = {};
+    if (name !== undefined) updateData.name = name;
+    if (settings !== undefined) updateData.settings = settings;
+
+    await this.prisma.tenant.update({
+      where: { id },
+      data: updateData,
+    });
+
+    return this.getTenant(id);
   }
 }
