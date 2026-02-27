@@ -7,13 +7,23 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api');
 
-  const allowedOrigins = [
-    'http://localhost:3000',
-    process.env.FRONTEND_URL,
-  ].filter(Boolean) as string[];
-
   app.enableCors({
-    origin: allowedOrigins,
+    origin: (origin, callback) => {
+      const allowed = [
+        'http://localhost:3000',
+        process.env.FRONTEND_URL,
+      ].filter(Boolean);
+
+      if (
+        !origin ||
+        allowed.includes(origin) ||
+        origin.endsWith('.vercel.app')
+      ) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
   });
 
