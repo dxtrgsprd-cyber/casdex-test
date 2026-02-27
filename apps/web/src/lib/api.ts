@@ -442,4 +442,118 @@ export const tenantsApi = {
     }),
 };
 
+// --- Vendors ---
+
+export interface Vendor {
+  id: string;
+  tenantId: string;
+  name: string;
+  contact: string | null;
+  email: string | null;
+  phone: string | null;
+  website: string | null;
+  category: string | null;
+  isActive: boolean;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const vendorsApi = {
+  list: (token: string, query?: Record<string, string>) => {
+    const params = new URLSearchParams(query || {}).toString();
+    return fetchApi<{ success: boolean; data: Vendor[]; total: number }>(
+      `/vendors${params ? `?${params}` : ''}`,
+      { token },
+    );
+  },
+
+  get: (token: string, id: string) =>
+    fetchApi<{ success: boolean; data: Vendor }>(`/vendors/${id}`, { token }),
+
+  create: (token: string, data: Record<string, unknown>) =>
+    fetchApi<{ success: boolean; data: Vendor }>('/vendors', {
+      method: 'POST',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  update: (token: string, id: string, data: Record<string, unknown>) =>
+    fetchApi<{ success: boolean; data: Vendor }>(`/vendors/${id}`, {
+      method: 'PUT',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  reactivate: (token: string, id: string) =>
+    fetchApi<{ success: boolean; data: Vendor }>(`/vendors/${id}/reactivate`, {
+      method: 'PUT',
+      token,
+    }),
+
+  delete: (token: string, id: string) =>
+    fetchApi<{ success: boolean; message: string }>(`/vendors/${id}`, {
+      method: 'DELETE',
+      token,
+    }),
+};
+
+// --- Subcontractors ---
+
+export interface Subcontractor {
+  id: string;
+  tenantId: string;
+  companyName: string;
+  primaryContact: string | null;
+  email: string | null;
+  phone: string | null;
+  trades: string[];
+  territories: string[];
+  isActive: boolean;
+  insuranceExpiry: string | null;
+  licenseNumber: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const subcontractorsApi = {
+  list: (token: string, query?: Record<string, string>) => {
+    const params = new URLSearchParams(query || {}).toString();
+    return fetchApi<{ success: boolean; data: Subcontractor[]; total: number }>(
+      `/subcontractors${params ? `?${params}` : ''}`,
+      { token },
+    );
+  },
+
+  get: (token: string, id: string) =>
+    fetchApi<{ success: boolean; data: Subcontractor }>(`/subcontractors/${id}`, { token }),
+
+  create: (token: string, data: Record<string, unknown>) =>
+    fetchApi<{ success: boolean; data: Subcontractor }>('/subcontractors', {
+      method: 'POST',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  update: (token: string, id: string, data: Record<string, unknown>) =>
+    fetchApi<{ success: boolean; data: Subcontractor }>(`/subcontractors/${id}`, {
+      method: 'PUT',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  reactivate: (token: string, id: string) =>
+    fetchApi<{ success: boolean; data: Subcontractor }>(`/subcontractors/${id}/reactivate`, {
+      method: 'PUT',
+      token,
+    }),
+
+  delete: (token: string, id: string) =>
+    fetchApi<{ success: boolean; message: string }>(`/subcontractors/${id}`, {
+      method: 'DELETE',
+      token,
+    }),
+};
+
 export { ApiError };
