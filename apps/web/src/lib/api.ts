@@ -146,6 +146,45 @@ export const usersApi = {
     fetchApi(`/users/${id}`, { method: 'DELETE', token }),
 };
 
+// --- Global Admin Users ---
+
+export interface GlobalUser {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  phone: string | null;
+  title: string | null;
+  isActive: boolean;
+  isGlobalAdmin: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+  organizations: Array<{
+    tenantId: string;
+    tenantName: string;
+    tenantSlug: string;
+    role: { id: string; name: string; displayName: string };
+  }>;
+}
+
+export const globalUsersApi = {
+  list: (token: string, page = 1, pageSize = 25, search?: string) => {
+    const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+    if (search) params.set('search', search);
+    return fetchApi<{ success: boolean; data: GlobalUser[]; total: number; page: number; pageSize: number; totalPages: number }>(
+      `/users/global?${params.toString()}`,
+      { token },
+    );
+  },
+
+  create: (token: string, data: { email: string; firstName: string; lastName: string; phone?: string; title?: string; password?: string }) =>
+    fetchApi<{ success: boolean; data: GlobalUser }>('/users/global', {
+      method: 'POST',
+      token,
+      body: JSON.stringify(data),
+    }),
+};
+
 // --- Opportunities ---
 
 export interface OppTeamMember {

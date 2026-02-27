@@ -7,7 +7,7 @@ import {
 import { hash } from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { PrismaService } from '../common/prisma.service';
-import { CreateUserDto, UpdateUserDto, UpdateUserRoleDto, UpdateProfileDto } from './dto/users.dto';
+import { CreateUserDto, CreateGlobalUserDto, UpdateUserDto, UpdateUserRoleDto, UpdateProfileDto } from './dto/users.dto';
 
 @Injectable()
 export class UsersService {
@@ -284,5 +284,137 @@ export class UsersService {
     }
 
     return user;
+  }
+
+  // --- Global admin methods ---
+
+  async listAllUsers(page = 1, pageSize = 25, search?: string) {
+    const skip = (page - 1) * pageSize;
+
+    const where = search
+      ? {
+          OR: [
+            { email: { contains: search, mode: 'insensitive' as const } },
+            { firstName: { contains: search, mode: 'insensitive' as const } },
+            { lastName: { contains: search, mode: 'insensitive' as const } },
+          ],
+        }
+      : {};
+
+    const [users, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          phone: true,
+          title: true,
+          isActive: true,
+          isGlobalAdmin: true,
+          lastLoginAt: true,
+          createdAt: true,
+          tenants: {
+            where: { isActive: true },
+            include: {
+              tenant: { select: { id: true, name: true, slug: true } },
+              role: { select: { id: true, name: true, displayName: true } },
+            },
+          },
+        },
+        skip,
+        take: pageSize,
+        orderBy: { firstName: 'asc' },
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+
+    return {
+      data: users.map((u) => ({
+        ...u,
+        organizations: u.tenants.map((ut) => ({
+          tenantId: ut.tenant.id,
+          tenantName: ut.tenant.name,
+          tenantSlug: ut.tenant.slug,
+          role: ut.role,
+        })),
+        tenants: undefined,
+      })),
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    };
+  }
+
+  async createGlobalUser(dto: CreateGlobalUserDto) {
+    // Check if email already exists
+    const existing = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+    });
+
+    if (existing) {
+      throw new ConflictException('A user with this email already exists');
+    }
+
+    let passwordHash: string;
+    let inviteToken: string | null = null;
+
+    if (dto.password) {
+      passwordHash = await hash(dto.password, 12);
+    } else {
+      passwordHash = await hash(uuidv4(), 12);
+      inviteToken = uuidv4();
+    }
+
+    const user = await this.prisma.user.create({
+      data: {
+        email: dto.email,
+        passwordHash,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        phone: dto.phone,
+        title: dto.title,
+      },
+    });
+
+    if (inviteToken) {
+      await this.prisma.passwordReset.create({
+        data: {
+          userId: user.id,
+          token: inviteToken,
+          type: 'invite',
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+      });
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`Invite token for ${dto.email}: ${inviteToken}`);
+      }
+    }
+
+    return this.prisma.user.findUnique({
+      where: { id: user.id },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+        title: true,
+        isActive: true,
+        isGlobalAdmin: true,
+        lastLoginAt: true,
+        createdAt: true,
+        tenants: {
+          where: { isActive: true },
+          include: {
+            tenant: { select: { id: true, name: true, slug: true } },
+            role: { select: { id: true, name: true, displayName: true } },
+          },
+        },
+      },
+    });
   }
 }

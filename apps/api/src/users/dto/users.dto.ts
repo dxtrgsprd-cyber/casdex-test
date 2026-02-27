@@ -74,3 +74,29 @@ export class UpdateProfileDto {
   @IsOptional()
   avatar?: string;
 }
+
+export class CreateGlobalUserDto {
+  @IsEmail()
+  email!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  firstName!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  lastName!: string;
+
+  @IsString()
+  @IsOptional()
+  phone?: string;
+
+  @IsString()
+  @IsOptional()
+  title?: string;
+
+  @IsString()
+  @MinLength(8)
+  @IsOptional()
+  password?: string;
+}

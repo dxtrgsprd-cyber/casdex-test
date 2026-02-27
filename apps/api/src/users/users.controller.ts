@@ -10,9 +10,10 @@ import {
   UseGuards,
   ParseIntPipe,
   DefaultValuePipe,
+  ForbiddenException,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
-import { CreateUserDto, UpdateUserDto, UpdateUserRoleDto, UpdateProfileDto } from './dto/users.dto';
+import { CreateUserDto, CreateGlobalUserDto, UpdateUserDto, UpdateUserRoleDto, UpdateProfileDto } from './dto/users.dto';
 import { CurrentUser, RequestUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -38,6 +39,38 @@ export class UsersController {
   ) {
     const profile = await this.usersService.updateProfile(user.userId, dto);
     return { success: true, data: profile };
+  }
+
+  // --- Global admin: all users across tenants ---
+
+  @Get('global')
+  @UseGuards(RolesGuard)
+  @Roles('global_admin')
+  async listAllUsers(
+    @CurrentUser() user: RequestUser,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('pageSize', new DefaultValuePipe(25), ParseIntPipe) pageSize: number,
+    @Query('search') search?: string,
+  ) {
+    if (!user.isGlobalAdmin) {
+      throw new ForbiddenException('Global admin access required');
+    }
+    const result = await this.usersService.listAllUsers(page, pageSize, search);
+    return { success: true, ...result };
+  }
+
+  @Post('global')
+  @UseGuards(RolesGuard)
+  @Roles('global_admin')
+  async createGlobalUser(
+    @Body() dto: CreateGlobalUserDto,
+    @CurrentUser() user: RequestUser,
+  ) {
+    if (!user.isGlobalAdmin) {
+      throw new ForbiddenException('Global admin access required');
+    }
+    const result = await this.usersService.createGlobalUser(dto);
+    return { success: true, data: result };
   }
 
   // --- User management (admin/manager) ---
