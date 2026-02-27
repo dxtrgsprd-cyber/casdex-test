@@ -148,6 +148,20 @@ export function TopNav() {
                 >
                   Change Password
                 </button>
+                {user?.isGlobalAdmin && (
+                  <>
+                    <hr className="my-1" />
+                    <button
+                      onClick={() => {
+                        router.push('/admin');
+                        setShowUserMenu(false);
+                      }}
+                      className="block w-full text-left px-4 py-2 text-sm text-primary-600 hover:bg-primary-50 font-medium"
+                    >
+                      Admin Portal
+                    </button>
+                  </>
+                )}
                 <hr className="my-1" />
                 <button
                   onClick={handleLogout}

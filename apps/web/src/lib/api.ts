@@ -393,4 +393,53 @@ export const dashboardApi = {
     fetchApi<{ success: boolean; data: DashboardData }>('/dashboard', { token }),
 };
 
+// --- Tenants (Global Admin) ---
+
+export interface Tenant {
+  id: string;
+  name: string;
+  slug: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt?: string;
+  settings?: Record<string, unknown>;
+  _count: { users: number; opportunities?: number; projects?: number };
+  roles?: Array<{
+    id: string;
+    name: string;
+    displayName: string;
+    isDefault: boolean;
+    isCustom: boolean;
+    permissions: Array<{ id: string; module: string; action: string; allowed: boolean }>;
+  }>;
+}
+
+export const tenantsApi = {
+  list: (token: string) =>
+    fetchApi<{ success: boolean; data: Tenant[] }>('/tenants', { token }),
+
+  get: (token: string, id: string) =>
+    fetchApi<{ success: boolean; data: Tenant }>(`/tenants/${id}`, { token }),
+
+  create: (token: string, data: { name: string; slug: string }) =>
+    fetchApi<{ success: boolean; data: Tenant }>('/tenants', {
+      method: 'POST',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  update: (token: string, id: string, data: { name?: string; isActive?: boolean }) =>
+    fetchApi<{ success: boolean; data: Tenant }>(`/tenants/${id}`, {
+      method: 'PUT',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  delete: (token: string, id: string) =>
+    fetchApi<{ success: boolean; message: string }>(`/tenants/${id}`, {
+      method: 'DELETE',
+      token,
+    }),
+};
+
 export { ApiError };
