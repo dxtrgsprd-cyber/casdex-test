@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 
 export default function SetPasswordPage() {
   return (
-    <Suspense>
+    <Suspense fallback={null}>
       <SetPasswordContent />
     </Suspense>
   );
