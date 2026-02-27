@@ -230,16 +230,14 @@ function AddUserModal({
     setSaving(true);
 
     try {
-      const payload: Record<string, string> = {
+      await globalUsersApi.create(accessToken, {
         email: form.email,
         firstName: form.firstName,
         lastName: form.lastName,
-      };
-      if (form.phone) payload.phone = form.phone;
-      if (form.title) payload.title = form.title;
-      if (form.password) payload.password = form.password;
-
-      await globalUsersApi.create(accessToken, payload);
+        phone: form.phone || undefined,
+        title: form.title || undefined,
+        password: form.password || undefined,
+      });
       onSuccess();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create user');
