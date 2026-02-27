@@ -49,8 +49,15 @@ export class UsersController {
     @CurrentUser() user: RequestUser,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('pageSize', new DefaultValuePipe(25), ParseIntPipe) pageSize: number,
+    @Query('search') search?: string,
+    @Query('roleId') roleId?: string,
+    @Query('status') status?: string,
   ) {
-    const result = await this.usersService.listUsers(user.tenantId, page, pageSize);
+    const result = await this.usersService.listUsers(user.tenantId, page, pageSize, {
+      search,
+      roleId,
+      status,
+    });
     return { success: true, ...result };
   }
 

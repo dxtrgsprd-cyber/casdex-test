@@ -13,12 +13,46 @@ import { CreateUserDto, UpdateUserDto, UpdateUserRoleDto, UpdateProfileDto } fro
 export class UsersService {
   constructor(private prisma: PrismaService) {}
 
-  async listUsers(tenantId: string, page = 1, pageSize = 25) {
+  async listUsers(
+    tenantId: string,
+    page = 1,
+    pageSize = 25,
+    filters?: { search?: string; roleId?: string; status?: string },
+  ) {
     const skip = (page - 1) * pageSize;
+
+    // Build where clause
+    const where: Record<string, unknown> = { tenantId };
+
+    // Status filter: 'active', 'inactive', or show all
+    if (filters?.status === 'active') {
+      where.isActive = true;
+    } else if (filters?.status === 'inactive') {
+      where.isActive = false;
+    } else {
+      // Default: show active users
+      where.isActive = true;
+    }
+
+    // Role filter
+    if (filters?.roleId) {
+      where.roleId = filters.roleId;
+    }
+
+    // Search filter (name or email)
+    if (filters?.search) {
+      where.user = {
+        OR: [
+          { firstName: { contains: filters.search, mode: 'insensitive' } },
+          { lastName: { contains: filters.search, mode: 'insensitive' } },
+          { email: { contains: filters.search, mode: 'insensitive' } },
+        ],
+      };
+    }
 
     const [users, total] = await Promise.all([
       this.prisma.userTenant.findMany({
-        where: { tenantId, isActive: true },
+        where,
         include: {
           user: {
             select: {
@@ -42,7 +76,7 @@ export class UsersService {
         take: pageSize,
         orderBy: { user: { firstName: 'asc' } },
       }),
-      this.prisma.userTenant.count({ where: { tenantId, isActive: true } }),
+      this.prisma.userTenant.count({ where }),
     ]);
 
     return {
