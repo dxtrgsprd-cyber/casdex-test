@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth-store';
 import {
@@ -54,6 +54,90 @@ const RISK_COLORS: Record<string, string> = {
 };
 
 type TabType = 'devices' | 'hardware-schedule' | 'sow';
+
+// ============================================================
+// FOV Analysis (embedded from FOV Calculator engine)
+// ============================================================
+
+interface FovSensorSpec { resW: number; resH: number; sW: number; sH: number; }
+const DESIGN_FOV_DB: Record<string, Record<string, FovSensorSpec>> = {
+  Hanwha: {
+    'PNM-C12083RVD': { resW: 3328, resH: 1872, sW: 5.1, sH: 2.9 },
+    'XND-8082RV': { resW: 3072, resH: 1728, sW: 5.1, sH: 2.9 },
+    'XNO-9083R': { resW: 3840, resH: 2160, sW: 5.8, sH: 3.2 },
+    'XND-6083RV': { resW: 2048, resH: 1536, sW: 4.8, sH: 3.6 },
+    'XNV-8082R': { resW: 3072, resH: 1728, sW: 5.1, sH: 2.9 },
+    'PNM-9322VQP': { resW: 2560, resH: 1440, sW: 5.1, sH: 2.9 },
+  },
+  Axis: {
+    'P3268-LVE': { resW: 3840, resH: 2160, sW: 5.8, sH: 3.2 },
+    'Q1656': { resW: 2688, resH: 1512, sW: 5.3, sH: 3.0 },
+    'M3116-LVE': { resW: 2688, resH: 1512, sW: 5.3, sH: 3.0 },
+    'P3265-LVE': { resW: 1920, resH: 1080, sW: 4.8, sH: 2.7 },
+    'Q6135-LE': { resW: 1920, resH: 1080, sW: 4.8, sH: 2.7 },
+  },
+};
+const DEFAULT_SENSOR: FovSensorSpec = { resW: 3072, resH: 1728, sW: 5.1, sH: 2.9 };
+const PPF_OPTIONS = [
+  { value: 76, label: 'Identification (76 PPF)' },
+  { value: 38, label: 'Recognition (38 PPF)' },
+  { value: 19, label: 'Observation (19 PPF)' },
+  { value: 10, label: 'Detection (10 PPF)' },
+];
+function calcFovAnalysis(sensor: FovSensorSpec, heightFt: number, distFt: number, ppf: number) {
+  const slope = Math.sqrt(heightFt * heightFt + distFt * distFt);
+  const reqWidth = sensor.resW / ppf;
+  const focal = (sensor.sW * slope) / reqWidth;
+  const tiltDeg = Math.atan(heightFt / distFt) * (180 / Math.PI);
+  const vfov = 2 * Math.atan(sensor.sH / (2 * focal)) * (180 / Math.PI);
+  const hfov = 2 * Math.atan(sensor.sW / (2 * focal)) * (180 / Math.PI);
+  const lowerEdge = tiltDeg + vfov / 2;
+  const blindSpot = lowerEdge < 90 ? heightFt / Math.tan(lowerEdge * Math.PI / 180) : 0;
+  const quality = tiltDeg <= 30 ? 'OPTIMAL' : 'OVERVIEW';
+  return { focal, tiltDeg, hfov, vfov, blindSpot, quality, slope };
+}
+
+// ============================================================
+// Mount BOM (embedded from Mounting Calculator engine)
+// ============================================================
+
+type MountLocation = 'Wall' | 'Corner' | 'Pole' | 'Flush';
+interface MountBomLine { component: string; partBase: string; desc: string; }
+interface MfrMountDb { generic: Record<string, MountBomLine[]>; models: Record<string, Record<string, MountBomLine[]>>; suffix: Record<string, string>; }
+const DESIGN_MOUNT_DB: Record<string, MfrMountDb> = {
+  Hanwha: {
+    generic: {
+      Wall: [{ component: 'Adapter', partBase: 'SBP-300WM', desc: 'Wall Mount' }, { component: 'Bracket', partBase: 'SBP-300NB', desc: 'Wall Bracket' }],
+      Corner: [{ component: 'Adapter', partBase: 'SBP-300WM', desc: 'Wall Mount' }, { component: 'Bracket', partBase: 'SBP-300NC', desc: 'Corner Bracket' }],
+      Pole: [{ component: 'Adapter', partBase: 'SBP-300WM', desc: 'Wall Mount' }, { component: 'Bracket', partBase: 'SBP-300NP', desc: 'Pole Bracket' }],
+      Flush: [{ component: 'Adapter', partBase: 'SBP-300CM', desc: 'Flush Mount' }],
+    },
+    models: {
+      'PNM-C12083RVD': {
+        Wall: [{ component: 'Adapter', partBase: 'SBP-300WM', desc: 'Wall Mount' }, { component: 'Bracket', partBase: 'SBP-302CM', desc: 'Multi-Sensor Bracket' }],
+      },
+    },
+    suffix: { White: 'W1', Black: 'B1' },
+  },
+  Axis: {
+    generic: {
+      Wall: [{ component: 'Adapter', partBase: 'T91B61', desc: 'Wall Bracket' }, { component: 'Bracket', partBase: 'T94N01D', desc: 'Pendant Kit' }],
+      Corner: [{ component: 'Adapter', partBase: 'T91B61', desc: 'Wall Bracket' }, { component: 'Bracket', partBase: 'T94N01D', desc: 'Pendant Kit' }, { component: 'Corner', partBase: 'T91A67', desc: 'Corner Bracket' }],
+      Pole: [{ component: 'Adapter', partBase: 'T91B61', desc: 'Wall Bracket' }, { component: 'Bracket', partBase: 'T91A47', desc: 'Pole Adapter' }],
+      Flush: [{ component: 'Adapter', partBase: 'T94F01S', desc: 'Flush Mount' }],
+    },
+    models: {},
+    suffix: { White: ' White', Black: ' Black' },
+  },
+};
+function getMountBom(manufacturer: string, model: string, location: MountLocation): { component: string; partNumber: string; desc: string }[] {
+  const db = DESIGN_MOUNT_DB[manufacturer];
+  if (!db) return [];
+  const entries = db.models[model]?.[location] || db.generic[location];
+  if (!entries) return [];
+  const sfx = db.suffix['White'] || '';
+  return entries.map((e) => ({ component: e.component, partNumber: e.partBase + sfx, desc: e.desc }));
+}
 
 export default function DesignDetailPage() {
   const router = useRouter();
@@ -750,6 +834,24 @@ function AddDeviceModal({ designId, onClose, onAdded }: { designId: string; onCl
               <div><label className="label">Camera Height (ft)</label><input type="number" className="input-field" value={cameraHeight} onChange={(e) => setCameraHeight(e.target.value)} /></div>
               <div><label className="label">Tilt (deg)</label><input type="number" className="input-field" value={tilt} onChange={(e) => setTilt(e.target.value)} /></div>
             </div>
+            {/* FOV Analysis Panel */}
+            {selectedDevice?.category === 'camera' && cameraHeight && fovDistance && (
+              <FovAnalysisPanel
+                manufacturer={selectedDevice.manufacturer}
+                model={selectedDevice.model}
+                heightFt={parseFloat(cameraHeight) || 0}
+                distanceFt={parseFloat(fovDistance) || 0}
+                onApplyTilt={(val) => setTilt(String(val.toFixed(1)))}
+                onApplyFovAngle={(val) => setFovAngle(String(val.toFixed(1)))}
+              />
+            )}
+            {/* Mount Suggestion */}
+            {selectedDevice?.category === 'camera' && (
+              <MountSuggestionPanel
+                manufacturer={selectedDevice.manufacturer}
+                model={selectedDevice.model}
+              />
+            )}
             <div className="w-32">
               <label className="label">Quantity</label>
               <input type="number" className="input-field" min={1} max={100} value={quantity} onChange={(e) => setQuantity(Math.max(1, Number(e.target.value) || 1))} />
@@ -821,6 +923,17 @@ function EditDeviceModal({ designId, placedDevice, onClose, onSaved }: { designI
             <div><label className="label">Camera Height (ft)</label><input type="number" className="input-field" value={cameraHeight} onChange={(e) => setCameraHeight(e.target.value)} /></div>
             <div><label className="label">Tilt (deg)</label><input type="number" className="input-field" value={tilt} onChange={(e) => setTilt(e.target.value)} /></div>
           </div>
+          {/* FOV Analysis Panel */}
+          {placedDevice.device?.category === 'camera' && cameraHeight && fovDistance && (
+            <FovAnalysisPanel
+              manufacturer={placedDevice.device.manufacturer}
+              model={placedDevice.device.model}
+              heightFt={parseFloat(cameraHeight) || 0}
+              distanceFt={parseFloat(fovDistance) || 0}
+              onApplyTilt={(val) => setTilt(String(val.toFixed(1)))}
+              onApplyFovAngle={(val) => setFovAngle(String(val.toFixed(1)))}
+            />
+          )}
           <div className="grid grid-cols-2 gap-4">
             <div><label className="label">Notes</label><textarea className="input-field" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} /></div>
             <div><label className="label">Install Details</label><textarea className="input-field" rows={2} value={installDetails} onChange={(e) => setInstallDetails(e.target.value)} /></div>
@@ -831,6 +944,143 @@ function EditDeviceModal({ designId, placedDevice, onClose, onSaved }: { designI
           <button onClick={handleSave} disabled={saving} className="btn-primary text-sm">{saving ? 'Saving...' : 'Save Changes'}</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ===== FOV Analysis Panel (shared by AddDeviceModal + EditDeviceModal) =====
+
+function FovAnalysisPanel({
+  manufacturer,
+  model,
+  heightFt,
+  distanceFt,
+  onApplyTilt,
+  onApplyFovAngle,
+}: {
+  manufacturer: string;
+  model: string;
+  heightFt: number;
+  distanceFt: number;
+  onApplyTilt: (deg: number) => void;
+  onApplyFovAngle: (deg: number) => void;
+}) {
+  const [ppf, setPpf] = useState(76);
+  const [expanded, setExpanded] = useState(true);
+
+  const sensor = DESIGN_FOV_DB[manufacturer]?.[model] || DEFAULT_SENSOR;
+  if (heightFt <= 0 || distanceFt <= 0) return null;
+
+  const result = calcFovAnalysis(sensor, heightFt, distanceFt, ppf);
+
+  return (
+    <div className="border border-indigo-200 rounded bg-indigo-50/50">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between px-4 py-2 text-sm font-medium text-indigo-800"
+      >
+        <span>FOV Analysis</span>
+        <span className="text-xs text-indigo-500">{expanded ? 'collapse' : 'expand'}</span>
+      </button>
+      {expanded && (
+        <div className="px-4 pb-3 space-y-2">
+          <div className="flex items-center gap-3 mb-2">
+            <select
+              className="input-field text-xs py-1"
+              value={ppf}
+              onChange={(e) => setPpf(Number(e.target.value))}
+            >
+              {PPF_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded ${result.quality === 'OPTIMAL' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+              {result.quality}
+            </span>
+          </div>
+          <div className="grid grid-cols-4 gap-3 text-xs">
+            <div>
+              <span className="text-gray-400">Focal Length</span>
+              <p className="font-semibold text-gray-900">{result.focal.toFixed(1)} mm</p>
+            </div>
+            <div>
+              <span className="text-gray-400">Tilt Angle</span>
+              <p className="font-semibold text-gray-900">{result.tiltDeg.toFixed(1)} deg</p>
+            </div>
+            <div>
+              <span className="text-gray-400">Blind Spot</span>
+              <p className="font-semibold text-gray-900">{result.blindSpot.toFixed(1)} ft</p>
+            </div>
+            <div>
+              <span className="text-gray-400">HFOV</span>
+              <p className="font-semibold text-gray-900">{result.hfov.toFixed(1)} deg</p>
+            </div>
+          </div>
+          <div className="flex gap-2 mt-1">
+            <button
+              type="button"
+              onClick={() => onApplyTilt(result.tiltDeg)}
+              className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+            >
+              Apply Tilt
+            </button>
+            <button
+              type="button"
+              onClick={() => onApplyFovAngle(result.hfov)}
+              className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+            >
+              Apply FOV Angle
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ===== Mount Suggestion Panel (AddDeviceModal only) =====
+
+function MountSuggestionPanel({ manufacturer, model }: { manufacturer: string; model: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [location, setLocation] = useState<MountLocation>('Wall');
+  const bom = getMountBom(manufacturer, model, location);
+
+  if (bom.length === 0) return null;
+
+  return (
+    <div className="border border-orange-200 rounded bg-orange-50/50">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between px-4 py-2 text-sm font-medium text-orange-800"
+      >
+        <span>Suggested Mounts</span>
+        <span className="text-xs text-orange-500">{expanded ? 'collapse' : 'expand'}</span>
+      </button>
+      {expanded && (
+        <div className="px-4 pb-3 space-y-2">
+          <select
+            className="input-field text-xs py-1 w-32"
+            value={location}
+            onChange={(e) => setLocation(e.target.value as MountLocation)}
+          >
+            <option value="Wall">Wall</option>
+            <option value="Corner">Corner</option>
+            <option value="Pole">Pole</option>
+            <option value="Flush">Flush</option>
+          </select>
+          <div className="space-y-1">
+            {bom.map((line, i) => (
+              <div key={i} className="flex items-center gap-3 text-xs">
+                <span className="text-gray-500 w-16">{line.component}</span>
+                <span className="font-mono text-orange-700 font-medium">{line.partNumber}</span>
+                <span className="text-gray-400">{line.desc}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -931,6 +1181,50 @@ function HardwareScheduleTab({ designId, design }: { designId: string; design: D
           </table>
         )}
       </div>
+
+      {/* Recommended Mounting Hardware */}
+      {(() => {
+        const cameraItems = schedule.items.filter((item) => item.category === 'camera');
+        if (cameraItems.length === 0) return null;
+        const mountLines: { partNumber: string; component: string; desc: string; qty: number }[] = [];
+        for (const item of cameraItems) {
+          const bom = getMountBom(item.manufacturer, item.model, 'Wall');
+          for (const line of bom) {
+            const existing = mountLines.find((m) => m.partNumber === line.partNumber);
+            if (existing) { existing.qty += item.quantity; }
+            else { mountLines.push({ ...line, qty: item.quantity }); }
+          }
+        }
+        if (mountLines.length === 0) return null;
+        return (
+          <div className="card overflow-hidden">
+            <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
+              <h3 className="text-sm font-semibold text-gray-800">Recommended Mounting Hardware</h3>
+              <p className="text-xs text-gray-400 mt-0.5">Default: Wall mount, White finish — use Mounting Calculator for model-specific overrides</p>
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Qty</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Component</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Part Number</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                {mountLines.map((line, i) => (
+                  <tr key={i} className="border-b border-gray-100">
+                    <td className="px-4 py-2 font-bold text-gray-900">{line.qty}</td>
+                    <td className="px-4 py-2 text-gray-700">{line.component}</td>
+                    <td className="px-4 py-2 font-mono text-xs text-orange-700">{line.partNumber}</td>
+                    <td className="px-4 py-2 text-gray-500">{line.desc}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })()}
 
       {/* Infrastructure (only if cameras) */}
       {cameraCount > 0 && (

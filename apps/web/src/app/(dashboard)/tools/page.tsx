@@ -24,6 +24,34 @@ const TOOLS = [
     href: '/tools/mount-selector',
     color: 'border-l-purple-500',
   },
+  {
+    title: 'FOV Calculator',
+    description:
+      'Field-of-view analysis for camera placement. Calculates lens selection, tilt angle, blind spot distance, and forensic quality assessment.',
+    href: '/tools/fov-calculator',
+    color: 'border-l-indigo-500',
+  },
+  {
+    title: 'Mounting Calculator',
+    description:
+      'Generate mount hardware BOM by manufacturer, camera model, location type, and finish color. Includes adapter and bracket part numbers.',
+    href: '/tools/mounting-calculator',
+    color: 'border-l-orange-500',
+  },
+  {
+    title: 'LPR Calculator',
+    description:
+      'License plate recognition setup tool. Calculates required focal length, shutter speed, capture angle, and frame rate for vehicle capture.',
+    href: '/tools/lpr-calculator',
+    color: 'border-l-red-500',
+  },
+  {
+    title: 'Wireless PtP Calculator',
+    description:
+      'Wireless point-to-point link design. Includes capacity audit, rain fade analysis, remote site PoE budget, line-of-sight, and wind load.',
+    href: '/tools/wireless-ptp',
+    color: 'border-l-teal-500',
+  },
 ];
 
 export default function ToolsPage() {
