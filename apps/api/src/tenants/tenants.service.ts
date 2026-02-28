@@ -4,8 +4,8 @@ import { CreateTenantDto, UpdateTenantDto } from './dto/tenants.dto';
 
 // Default roles created for every new tenant
 const DEFAULT_ROLES = [
-  { name: 'admin', displayName: 'Admin' },
-  { name: 'manager', displayName: 'Manager' },
+  { name: 'admin', displayName: 'Org Admin' },
+  { name: 'manager', displayName: 'Org Manager' },
   { name: 'sales', displayName: 'Sales' },
   { name: 'presales', displayName: 'Presales' },
   { name: 'project_manager', displayName: 'Project Manager' },
@@ -22,6 +22,8 @@ const DEFAULT_PERMISSIONS: Record<string, Record<string, string[]>> = {
     projects: ['create', 'read', 'update', 'delete'],
     tools: ['create', 'read', 'update', 'delete'],
     management: ['create', 'read', 'update', 'delete'],
+    vendors: ['create', 'read', 'update', 'delete'],
+    subcontractors: ['create', 'read', 'update', 'delete'],
   },
   manager: {
     opportunities: ['create', 'read', 'update', 'delete'],
@@ -30,6 +32,8 @@ const DEFAULT_PERMISSIONS: Record<string, Record<string, string[]>> = {
     projects: ['create', 'read', 'update', 'delete'],
     tools: ['read'],
     management: ['create', 'read', 'update', 'delete'],
+    vendors: ['create', 'read', 'update', 'delete'],
+    subcontractors: ['create', 'read', 'update', 'delete'],
   },
   sales: {
     opportunities: ['create', 'read', 'update'],
@@ -38,6 +42,8 @@ const DEFAULT_PERMISSIONS: Record<string, Record<string, string[]>> = {
     projects: ['read'],
     tools: ['read'],
     management: ['read'],
+    vendors: ['read'],
+    subcontractors: ['read'],
   },
   presales: {
     opportunities: ['create', 'read', 'update'],
@@ -46,6 +52,8 @@ const DEFAULT_PERMISSIONS: Record<string, Record<string, string[]>> = {
     projects: ['read', 'update'],
     tools: ['read'],
     management: ['read'],
+    vendors: ['read'],
+    subcontractors: ['read'],
   },
   project_manager: {
     opportunities: ['read', 'update'],
@@ -54,6 +62,8 @@ const DEFAULT_PERMISSIONS: Record<string, Record<string, string[]>> = {
     projects: ['create', 'read', 'update'],
     tools: ['read'],
     management: ['read'],
+    vendors: ['read'],
+    subcontractors: ['read'],
   },
   field_technician: {
     opportunities: ['read'],
@@ -62,6 +72,8 @@ const DEFAULT_PERMISSIONS: Record<string, Record<string, string[]>> = {
     projects: ['read', 'update'],
     tools: ['read'],
     management: ['read'],
+    vendors: ['read'],
+    subcontractors: ['read'],
   },
   subcontractor: {
     opportunities: ['read'],
@@ -70,6 +82,8 @@ const DEFAULT_PERMISSIONS: Record<string, Record<string, string[]>> = {
     projects: ['read', 'update'],
     tools: [],
     management: [],
+    vendors: [],
+    subcontractors: [],
   },
   customer: {
     opportunities: ['read'],
@@ -78,6 +92,8 @@ const DEFAULT_PERMISSIONS: Record<string, Record<string, string[]>> = {
     projects: ['read'],
     tools: [],
     management: [],
+    vendors: [],
+    subcontractors: [],
   },
 };
 

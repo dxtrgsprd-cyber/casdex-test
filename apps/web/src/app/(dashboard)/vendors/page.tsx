@@ -23,7 +23,8 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 export default function VendorsPage() {
-  const { accessToken } = useAuthStore();
+  const { accessToken, roles } = useAuthStore();
+  const canManage = roles.includes('admin') || roles.includes('manager');
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -96,9 +97,11 @@ export default function VendorsPage() {
             {!loading && <span className="ml-2 text-gray-400">({vendors.length} total)</span>}
           </p>
         </div>
-        <button className="btn-primary" onClick={handleCreate}>
-          Add Vendor
-        </button>
+        {canManage && (
+          <button className="btn-primary" onClick={handleCreate}>
+            Add Vendor
+          </button>
+        )}
       </div>
 
       {/* Filters */}
@@ -137,9 +140,11 @@ export default function VendorsPage() {
       ) : vendors.length === 0 ? (
         <div className="card p-8 text-center">
           <p className="text-sm text-gray-500 mb-3">No vendors found.</p>
-          <button className="btn-primary text-sm" onClick={handleCreate}>
-            Add your first vendor
-          </button>
+          {canManage && (
+            <button className="btn-primary text-sm" onClick={handleCreate}>
+              Add your first vendor
+            </button>
+          )}
         </div>
       ) : (
         <div className="card overflow-hidden">
@@ -150,7 +155,7 @@ export default function VendorsPage() {
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Contact</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Categories</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-600">Actions</th>
+                {canManage && <th className="text-right px-4 py-3 font-medium text-gray-600">Actions</th>}
               </tr>
             </thead>
             <tbody>
@@ -213,28 +218,30 @@ export default function VendorsPage() {
                       {v.isActive ? 'Active' : 'Inactive'}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <button
-                        onClick={() => handleEdit(v)}
-                        className="px-2 py-1 text-xs text-gray-600 hover:text-primary-600 hover:bg-primary-50 rounded"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleToggleActive(v)}
-                        className="px-2 py-1 text-xs text-gray-600 hover:text-amber-600 hover:bg-amber-50 rounded"
-                      >
-                        {v.isActive ? 'Deactivate' : 'Activate'}
-                      </button>
-                      <button
-                        onClick={() => handleDelete(v)}
-                        className="px-2 py-1 text-xs text-gray-600 hover:text-red-600 hover:bg-red-50 rounded"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </td>
+                  {canManage && (
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => handleEdit(v)}
+                          className="px-2 py-1 text-xs text-gray-600 hover:text-primary-600 hover:bg-primary-50 rounded"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleToggleActive(v)}
+                          className="px-2 py-1 text-xs text-gray-600 hover:text-amber-600 hover:bg-amber-50 rounded"
+                        >
+                          {v.isActive ? 'Deactivate' : 'Activate'}
+                        </button>
+                        <button
+                          onClick={() => handleDelete(v)}
+                          className="px-2 py-1 text-xs text-gray-600 hover:text-red-600 hover:bg-red-50 rounded"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
