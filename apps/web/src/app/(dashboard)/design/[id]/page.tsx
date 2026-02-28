@@ -55,6 +55,7 @@ const NEXT_STATUS: Record<string, { label: string; status: string } | null> = {
 const CATEGORY_LABELS: Record<string, string> = {
   camera: 'Camera',
   access_control: 'Access Control',
+  vape_environmental: 'Vape / Environmental',
   networking: 'Networking',
   av: 'Audio / Video',
   sensor: 'Sensor',
@@ -69,7 +70,106 @@ const RISK_COLORS: Record<string, string> = {
   critical: 'text-red-900 bg-red-200',
 };
 
-type TabType = 'devices' | 'access-control' | 'hardware-schedule' | 'sow';
+// ============================================================
+// Design Layer System
+// Each system type is a layer that can be toggled on/off on the
+// canvas. Tabs switch between system types for device management.
+// ============================================================
+
+type SystemTab = 'cctv' | 'access-control' | 'vape-environmental' | 'network' | 'av' | 'other';
+type ExportTab = 'hardware-schedule' | 'sow';
+type TabType = SystemTab | ExportTab;
+
+interface DesignLayer {
+  key: SystemTab;
+  label: string;
+  shortLabel: string;
+  color: string;
+  bgColor: string;
+  borderColor: string;
+  dotColor: string;
+  categories: string[];  // device categories that belong to this layer
+}
+
+const DESIGN_LAYERS: DesignLayer[] = [
+  {
+    key: 'cctv',
+    label: 'CCTV',
+    shortLabel: 'CCTV',
+    color: 'text-blue-700',
+    bgColor: 'bg-blue-50',
+    borderColor: 'border-blue-300',
+    dotColor: 'bg-blue-500',
+    categories: ['camera'],
+  },
+  {
+    key: 'access-control',
+    label: 'Access Control',
+    shortLabel: 'ACS',
+    color: 'text-teal-700',
+    bgColor: 'bg-teal-50',
+    borderColor: 'border-teal-300',
+    dotColor: 'bg-teal-500',
+    categories: ['access_control'],
+  },
+  {
+    key: 'vape-environmental',
+    label: 'Vape / Environmental Detectors',
+    shortLabel: 'Vape/Env',
+    color: 'text-amber-700',
+    bgColor: 'bg-amber-50',
+    borderColor: 'border-amber-300',
+    dotColor: 'bg-amber-500',
+    categories: ['vape_environmental', 'sensor'],
+  },
+  {
+    key: 'network',
+    label: 'Network',
+    shortLabel: 'Network',
+    color: 'text-purple-700',
+    bgColor: 'bg-purple-50',
+    borderColor: 'border-purple-300',
+    dotColor: 'bg-purple-500',
+    categories: ['networking'],
+  },
+  {
+    key: 'av',
+    label: 'Audio / Video',
+    shortLabel: 'AV',
+    color: 'text-rose-700',
+    bgColor: 'bg-rose-50',
+    borderColor: 'border-rose-300',
+    dotColor: 'bg-rose-500',
+    categories: ['av'],
+  },
+  {
+    key: 'other',
+    label: 'Other',
+    shortLabel: 'Other',
+    color: 'text-gray-700',
+    bgColor: 'bg-gray-50',
+    borderColor: 'border-gray-300',
+    dotColor: 'bg-gray-500',
+    categories: ['mount', 'accessory'],
+  },
+];
+
+function getLayerForCategory(category: string): DesignLayer | undefined {
+  return DESIGN_LAYERS.find((l) => l.categories.includes(category));
+}
+
+function getDevicesForLayer(devices: PlacedDeviceData[], layerKey: SystemTab): PlacedDeviceData[] {
+  const layer = DESIGN_LAYERS.find((l) => l.key === layerKey);
+  if (!layer) return [];
+  return devices.filter((pd) => layer.categories.includes(pd.device?.category || ''));
+}
+
+function getVisibleDevices(devices: PlacedDeviceData[], visibleLayers: Set<string>): PlacedDeviceData[] {
+  return devices.filter((pd) => {
+    const layer = getLayerForCategory(pd.device?.category || '');
+    return layer ? visibleLayers.has(layer.key) : visibleLayers.has('other');
+  });
+}
 
 // ============================================================
 // Door Config Storage (saved with design, linked to opportunity)
@@ -187,7 +287,27 @@ export default function DesignDetailPage() {
   const [design, setDesign] = useState<DesignDetail | null>(null);
   const [opp, setOpp] = useState<Opportunity | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<TabType>('devices');
+  const [tab, setTab] = useState<TabType>('cctv');
+  const [visibleLayers, setVisibleLayers] = useState<Set<string>>(
+    () => new Set(DESIGN_LAYERS.map((l) => l.key))
+  );
+
+  function toggleLayer(layerKey: string) {
+    setVisibleLayers((prev) => {
+      const next = new Set(prev);
+      if (next.has(layerKey)) next.delete(layerKey);
+      else next.add(layerKey);
+      return next;
+    });
+  }
+
+  function showAllLayers() {
+    setVisibleLayers(new Set(DESIGN_LAYERS.map((l) => l.key)));
+  }
+
+  function showOnlyLayer(layerKey: string) {
+    setVisibleLayers(new Set([layerKey]));
+  }
 
   const canManage = roles.includes('admin') || roles.includes('manager') || roles.includes('presales');
 
@@ -244,6 +364,8 @@ export default function DesignDetailPage() {
   const cameraCount = design.placedDevices.filter((pd) => pd.device?.category === 'camera').length;
   const accessControlCount = design.placedDevices.filter((pd) => pd.device?.category === 'access_control').length;
   const avCount = design.placedDevices.filter((pd) => pd.device?.category === 'av').length;
+  const vapeEnvCount = design.placedDevices.filter((pd) => pd.device?.category === 'vape_environmental' || pd.device?.category === 'sensor').length;
+  const networkCount = design.placedDevices.filter((pd) => pd.device?.category === 'networking').length;
 
   const nonNdaaDevices = design.placedDevices.filter((pd) => pd.device && !pd.device.ndaaCompliant);
   const allNdaaCompliant = nonNdaaDevices.length === 0 && design.placedDevices.length > 0;
@@ -375,21 +497,26 @@ export default function DesignDetailPage() {
           </div>
         </div>
 
-        {/* Devices by Category */}
+        {/* Devices by Layer */}
         <div className="card p-4">
-          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Devices</h3>
-          {Object.keys(categoryGroups).length === 0 ? (
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">System Layers</h3>
+          {design.placedDevices.length === 0 ? (
             <p className="text-sm text-gray-400">No devices placed</p>
           ) : (
             <div className="space-y-2">
-              {Object.entries(categoryGroups)
-                .sort(([, a], [, b]) => b - a)
-                .map(([cat, count]) => (
-                  <div key={cat} className="flex justify-between text-sm">
-                    <span className="text-gray-500">{CATEGORY_LABELS[cat] || cat}</span>
+              {DESIGN_LAYERS.map((layer) => {
+                const count = getDevicesForLayer(design.placedDevices, layer.key).length;
+                if (count === 0) return null;
+                return (
+                  <div key={layer.key} className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-2 h-2 rounded-full ${layer.dotColor}`} />
+                      <span className="text-gray-500">{layer.label}</span>
+                    </div>
                     <span className="font-semibold text-gray-900">{count}</span>
                   </div>
-                ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -487,19 +614,85 @@ export default function DesignDetailPage() {
         </div>
       </div>
 
-      {/* Tabs */}
+      {/* Layer Visibility Controls */}
+      <div className="card p-3 mb-4">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Layers</h3>
+          <div className="flex items-center gap-2">
+            <button onClick={showAllLayers} className="text-xs text-primary-600 hover:text-primary-700 font-medium">Show All</button>
+            {DESIGN_LAYERS.some((l) => l.key === tab) && (
+              <button onClick={() => showOnlyLayer(tab)} className="text-xs text-primary-600 hover:text-primary-700 font-medium">Solo</button>
+            )}
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          {DESIGN_LAYERS.map((layer) => {
+            const count = getDevicesForLayer(design.placedDevices, layer.key).length;
+            const isVisible = visibleLayers.has(layer.key);
+            return (
+              <label
+                key={layer.key}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-full border cursor-pointer transition-all text-xs font-medium ${
+                  isVisible
+                    ? `${layer.bgColor} ${layer.borderColor} ${layer.color}`
+                    : 'bg-gray-100 border-gray-200 text-gray-400'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={isVisible}
+                  onChange={() => toggleLayer(layer.key)}
+                  className="sr-only"
+                />
+                <span className={`w-2 h-2 rounded-full ${isVisible ? layer.dotColor : 'bg-gray-300'}`} />
+                {layer.shortLabel}
+                {count > 0 && (
+                  <span className={`inline-flex px-1.5 py-0 rounded-full text-xs ${isVisible ? 'bg-white/60' : 'bg-gray-200'}`}>
+                    {count}
+                  </span>
+                )}
+              </label>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* System Tabs + Export Tabs */}
       <div className="border-b border-gray-200 mb-6">
-        <div className="flex gap-6">
+        <div className="flex gap-1 overflow-x-auto">
+          {/* System layer tabs */}
+          {DESIGN_LAYERS.map((layer) => {
+            const count = getDevicesForLayer(design.placedDevices, layer.key).length;
+            const isActive = tab === layer.key;
+            return (
+              <button
+                key={layer.key}
+                onClick={() => setTab(layer.key)}
+                className={`pb-3 px-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+                  isActive
+                    ? 'border-primary-500 text-primary-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${isActive ? layer.dotColor : 'bg-gray-300'}`} />
+                {layer.label}
+                {count > 0 && (
+                  <span className="text-xs text-gray-400">({count})</span>
+                )}
+              </button>
+            );
+          })}
+          {/* Separator */}
+          <div className="border-l border-gray-200 mx-2" />
+          {/* Export tabs */}
           {[
-            { key: 'devices' as TabType, label: 'Devices' },
-            { key: 'access-control' as TabType, label: 'Access Control' },
             { key: 'hardware-schedule' as TabType, label: 'Hardware Schedule' },
             { key: 'sow' as TabType, label: 'Statement of Work' },
           ].map((t) => (
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
-              className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
+              className={`pb-3 px-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                 tab === t.key
                   ? 'border-primary-500 text-primary-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -512,11 +705,62 @@ export default function DesignDetailPage() {
       </div>
 
       {/* Tab Content */}
-      {tab === 'devices' && (
-        <DevicesTab design={design} canManage={canManage} onRefresh={loadDesign} />
+      {tab === 'cctv' && (
+        <LayerDevicesTab
+          design={design}
+          canManage={canManage}
+          onRefresh={loadDesign}
+          layerKey="cctv"
+          visibleLayers={visibleLayers}
+        />
       )}
       {tab === 'access-control' && (
-        <AccessControlTab design={design} opp={opp} />
+        <div className="space-y-6">
+          <LayerDevicesTab
+            design={design}
+            canManage={canManage}
+            onRefresh={loadDesign}
+            layerKey="access-control"
+            visibleLayers={visibleLayers}
+          />
+          <AccessControlTab design={design} opp={opp} />
+        </div>
+      )}
+      {tab === 'vape-environmental' && (
+        <LayerDevicesTab
+          design={design}
+          canManage={canManage}
+          onRefresh={loadDesign}
+          layerKey="vape-environmental"
+          visibleLayers={visibleLayers}
+        />
+      )}
+      {tab === 'network' && (
+        <LayerDevicesTab
+          design={design}
+          canManage={canManage}
+          onRefresh={loadDesign}
+          layerKey="network"
+          visibleLayers={visibleLayers}
+        />
+      )}
+      {tab === 'av' && (
+        <LayerDevicesTab
+          design={design}
+          canManage={canManage}
+          onRefresh={loadDesign}
+          layerKey="av"
+          visibleLayers={visibleLayers}
+        />
+      )}
+      {tab === 'other' && (
+        <LayerDevicesTab
+          design={design}
+          canManage={canManage}
+          onRefresh={loadDesign}
+          layerKey="other"
+          visibleLayers={visibleLayers}
+        />
       )}
       {tab === 'hardware-schedule' && (
         <HardwareScheduleTab designId={design.id} design={design} />
@@ -718,14 +962,214 @@ function DevicesTab({
   );
 }
 
+// ===== Layer Devices Tab (per-system filtered view) =====
+
+function LayerDevicesTab({
+  design,
+  canManage,
+  onRefresh,
+  layerKey,
+  visibleLayers,
+}: {
+  design: DesignDetail;
+  canManage: boolean;
+  onRefresh: () => void;
+  layerKey: SystemTab;
+  visibleLayers: Set<string>;
+}) {
+  const { accessToken } = useAuthStore();
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [editingDevice, setEditingDevice] = useState<PlacedDeviceData | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+
+  const layer = DESIGN_LAYERS.find((l) => l.key === layerKey)!;
+  const layerDevices = getDevicesForLayer(design.placedDevices, layerKey);
+  const allVisibleDevices = getVisibleDevices(design.placedDevices, visibleLayers);
+  const otherVisibleDevices = allVisibleDevices.filter(
+    (pd) => !layer.categories.includes(pd.device?.category || '')
+  );
+
+  const grouped = groupDevicesByLocation(layerDevices);
+
+  async function handleRemove(placedDeviceId: string) {
+    if (!accessToken) return;
+    try {
+      await designsApi.removeDevice(accessToken, design.id, placedDeviceId);
+      setDeleteConfirm(null);
+      onRefresh();
+    } catch {
+      // ignore
+    }
+  }
+
+  return (
+    <div>
+      {/* Layer header */}
+      <div className={`rounded-t border ${layer.borderColor} ${layer.bgColor} px-4 py-3 mb-0 flex items-center justify-between`}>
+        <div className="flex items-center gap-3">
+          <span className={`w-3 h-3 rounded-full ${layer.dotColor}`} />
+          <h2 className={`text-sm font-semibold ${layer.color}`}>{layer.label}</h2>
+          <span className="text-xs text-gray-500">{layerDevices.length} device{layerDevices.length !== 1 ? 's' : ''}</span>
+        </div>
+        {canManage && (
+          <button onClick={() => setShowAddModal(true)} className="btn-primary text-sm">
+            Add {layer.shortLabel} Device
+          </button>
+        )}
+      </div>
+
+      {/* Other visible layers context indicator */}
+      {otherVisibleDevices.length > 0 && (
+        <div className="bg-gray-50 border-x border-gray-200 px-4 py-2 text-xs text-gray-500 flex items-center gap-2">
+          <span>Also visible on canvas:</span>
+          {DESIGN_LAYERS.filter((l) => l.key !== layerKey && visibleLayers.has(l.key)).map((l) => {
+            const count = getDevicesForLayer(design.placedDevices, l.key).length;
+            if (count === 0) return null;
+            return (
+              <span key={l.key} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full ${l.bgColor} ${l.color} border ${l.borderColor}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${l.dotColor}`} />
+                {l.shortLabel} ({count})
+              </span>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Device list for this layer */}
+      {layerDevices.length === 0 ? (
+        <div className="card rounded-t-none p-8 text-center">
+          <p className="text-sm text-gray-500 mb-3">No {layer.label.toLowerCase()} devices in this design yet</p>
+          {canManage && (
+            <button onClick={() => setShowAddModal(true)} className="btn-primary text-sm">
+              Add First {layer.shortLabel} Device
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="card rounded-t-none overflow-hidden">
+          {grouped.map((area) => (
+            <div key={area.area}>
+              <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
+                <h3 className="font-semibold text-sm text-gray-800">{area.area}</h3>
+              </div>
+              {area.floors.map((floor) => (
+                <div key={floor.floor}>
+                  {floor.floor !== area.area && (
+                    <div className="px-4 py-1.5 border-b border-gray-100">
+                      <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                        {floor.floor}
+                      </span>
+                    </div>
+                  )}
+                  {floor.rooms.map((room) => (
+                    <div key={room.room}>
+                      {room.room !== floor.floor && (
+                        <div className="px-6 py-1 border-b border-gray-50">
+                          <span className="text-xs text-gray-400">{room.room}</span>
+                        </div>
+                      )}
+                      {room.devices.map((pd) => (
+                        <div
+                          key={pd.id}
+                          className="flex items-center justify-between px-4 py-3 border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors"
+                        >
+                          <div className="flex items-center gap-4 min-w-0">
+                            <span className={`w-2 h-2 rounded-full shrink-0 ${layer.dotColor}`} />
+                            <div>
+                              <p className="text-sm font-medium text-gray-900">
+                                {pd.device?.manufacturer} {pd.device?.model}
+                              </p>
+                              <div className="flex items-center gap-3 text-xs text-gray-400 mt-0.5">
+                                <span className="font-mono">{pd.device?.partNumber}</span>
+                                <span className="capitalize">
+                                  {CATEGORY_LABELS[pd.device?.category || ''] || pd.device?.category}
+                                </span>
+                                {pd.device?.ndaaCompliant === false && (
+                                  <span className="text-red-600 font-medium">Non-NDAA</span>
+                                )}
+                                {pd.fovAngle != null && <span>FOV: {pd.fovAngle} deg</span>}
+                                {pd.fovDistance != null && <span>Dist: {pd.fovDistance} ft</span>}
+                                {pd.cameraHeight != null && <span>Height: {pd.cameraHeight} ft</span>}
+                              </div>
+                              {pd.notes && (
+                                <p className="text-xs text-gray-400 mt-1">{pd.notes}</p>
+                              )}
+                            </div>
+                          </div>
+                          {canManage && (
+                            <div className="flex items-center gap-2 ml-4 shrink-0">
+                              <button
+                                onClick={() => setEditingDevice(pd)}
+                                className="text-primary-600 hover:text-primary-700 text-xs font-medium"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => setDeleteConfirm(pd.id)}
+                                className="text-red-500 hover:text-red-700 text-xs font-medium"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showAddModal && (
+        <AddDeviceModal
+          designId={design.id}
+          defaultCategory={layer.categories[0]}
+          onClose={() => setShowAddModal(false)}
+          onAdded={() => { setShowAddModal(false); onRefresh(); }}
+        />
+      )}
+
+      {editingDevice && (
+        <EditDeviceModal
+          designId={design.id}
+          placedDevice={editingDevice}
+          onClose={() => setEditingDevice(null)}
+          onSaved={() => { setEditingDevice(null); onRefresh(); }}
+        />
+      )}
+
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-sm p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Remove Device</h3>
+            <p className="text-sm text-gray-600 mb-4">Remove this device from the design?</p>
+            <div className="flex items-center justify-end gap-3">
+              <button onClick={() => setDeleteConfirm(null)} className="btn-secondary text-sm">Cancel</button>
+              <button
+                onClick={() => handleRemove(deleteConfirm)}
+                className="bg-red-600 text-white px-4 py-2 rounded text-sm font-medium hover:bg-red-700"
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ===== Add Device Modal =====
 
-function AddDeviceModal({ designId, onClose, onAdded }: { designId: string; onClose: () => void; onAdded: () => void }) {
+function AddDeviceModal({ designId, defaultCategory, onClose, onAdded }: { designId: string; defaultCategory?: string; onClose: () => void; onAdded: () => void }) {
   const { accessToken } = useAuthStore();
   const [step, setStep] = useState<'select' | 'configure'>('select');
   const [devices, setDevices] = useState<Device[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterCat, setFilterCat] = useState('');
+  const [filterCat, setFilterCat] = useState(defaultCategory || '');
   const [filterMfr, setFilterMfr] = useState('');
   const [manufacturers, setManufacturers] = useState<string[]>([]);
   const [loadingDevices, setLoadingDevices] = useState(true);
@@ -807,7 +1251,7 @@ function AddDeviceModal({ designId, onClose, onAdded }: { designId: string; onCl
               <input type="text" placeholder="Search devices..." className="input-field" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} autoFocus />
               <select className="input-field" value={filterCat} onChange={(e) => setFilterCat(e.target.value)}>
                 <option value="">All Categories</option>
-                {['camera', 'access_control', 'networking', 'av', 'sensor', 'mount', 'accessory'].map((c) => (
+                {['camera', 'access_control', 'vape_environmental', 'networking', 'av', 'sensor', 'mount', 'accessory'].map((c) => (
                   <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>
                 ))}
               </select>
