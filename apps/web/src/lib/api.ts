@@ -115,35 +115,137 @@ export const authApi = {
 
 // --- Users ---
 
+export interface UserListItem {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  phone: string | null;
+  title: string | null;
+  avatar: string | null;
+  isActive: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+  role: { id: string; name: string; displayName: string };
+}
+
+export interface UserDetail extends UserListItem {
+  isGlobalAdmin?: boolean;
+  role: {
+    id: string;
+    name: string;
+    displayName: string;
+    permissions?: Array<{ id: string; module: string; action: string; allowed: boolean }>;
+  };
+}
+
+export interface UsersListResponse {
+  success: boolean;
+  data: UserListItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
 export const usersApi = {
   me: (token: string) =>
     fetchApi<{ success: boolean; data: unknown }>('/users/me', { token }),
 
-  list: (token: string, page = 1, pageSize = 25) =>
-    fetchApi<{ success: boolean; data: unknown[]; total: number }>(
-      `/users?page=${page}&pageSize=${pageSize}`,
-      { token },
-    ),
+  list: (token: string, params?: { page?: number; pageSize?: number; search?: string; roleId?: string; status?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.page) query.set('page', String(params.page));
+    if (params?.pageSize) query.set('pageSize', String(params.pageSize));
+    if (params?.search) query.set('search', params.search);
+    if (params?.roleId) query.set('roleId', params.roleId);
+    if (params?.status) query.set('status', params.status);
+    const qs = query.toString();
+    return fetchApi<UsersListResponse>(`/users${qs ? `?${qs}` : ''}`, { token });
+  },
+
+  listByTenant: (
+    token: string,
+    tenantId: string,
+    params?: { page?: number; pageSize?: number; search?: string; roleId?: string; status?: string },
+  ) =>
+    fetchApi<UsersListResponse>(`/users/by-tenant/${tenantId}`, {
+      method: 'POST',
+      token,
+      body: JSON.stringify(params ?? {}),
+    }),
 
   get: (token: string, id: string) =>
-    fetchApi<{ success: boolean; data: unknown }>(`/users/${id}`, { token }),
+    fetchApi<{ success: boolean; data: UserDetail }>(`/users/${id}`, { token }),
 
-  create: (token: string, data: Record<string, unknown>) =>
-    fetchApi<{ success: boolean; data: unknown }>('/users', {
+  create: (token: string, data: { email: string; firstName: string; lastName: string; roleId: string; phone?: string; title?: string; password?: string }) =>
+    fetchApi<{ success: boolean; data: UserDetail }>('/users', {
       method: 'POST',
       token,
       body: JSON.stringify(data),
     }),
 
-  update: (token: string, id: string, data: Record<string, unknown>) =>
-    fetchApi<{ success: boolean; data: unknown }>(`/users/${id}`, {
+  update: (token: string, id: string, data: { firstName?: string; lastName?: string; phone?: string; title?: string; isActive?: boolean }) =>
+    fetchApi<{ success: boolean; data: UserDetail }>(`/users/${id}`, {
+      method: 'PUT',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  updateRole: (token: string, id: string, roleId: string) =>
+    fetchApi<{ success: boolean; data: UserDetail }>(`/users/${id}/role`, {
+      method: 'PUT',
+      token,
+      body: JSON.stringify({ roleId }),
+    }),
+
+  delete: (token: string, id: string) =>
+    fetchApi<{ success: boolean; message: string }>(`/users/${id}`, { method: 'DELETE', token }),
+};
+
+// --- Roles ---
+
+export interface RolePermission {
+  id: string;
+  module: string;
+  action: string;
+  allowed: boolean;
+}
+
+export interface Role {
+  id: string;
+  name: string;
+  displayName: string;
+  isDefault: boolean;
+  isCustom: boolean;
+  createdAt: string;
+  updatedAt: string;
+  permissions: RolePermission[];
+  _count: { userTenants: number };
+}
+
+export const rolesApi = {
+  list: (token: string) =>
+    fetchApi<{ success: boolean; data: Role[] }>('/roles', { token }),
+
+  get: (token: string, id: string) =>
+    fetchApi<{ success: boolean; data: Role }>(`/roles/${id}`, { token }),
+
+  create: (token: string, data: { name: string; displayName: string; permissions?: Array<{ module: string; action: string; allowed: boolean }> }) =>
+    fetchApi<{ success: boolean; data: Role }>('/roles', {
+      method: 'POST',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  update: (token: string, id: string, data: { displayName?: string; permissions?: Array<{ module: string; action: string; allowed: boolean }> }) =>
+    fetchApi<{ success: boolean; data: Role }>(`/roles/${id}`, {
       method: 'PUT',
       token,
       body: JSON.stringify(data),
     }),
 
   delete: (token: string, id: string) =>
-    fetchApi(`/users/${id}`, { method: 'DELETE', token }),
+    fetchApi<{ success: boolean; message: string }>(`/roles/${id}`, { method: 'DELETE', token }),
 };
 
 // --- Opportunities ---

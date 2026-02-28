@@ -64,9 +64,7 @@ export default function TenantDetailPage() {
     if (!accessToken) return;
     setUsersLoading(true);
     try {
-      // Global admins can access any tenant's users through the users endpoint
-      // We need to use the tenant-scoped user list
-      const res = await usersApi.list(accessToken, 1, 100);
+      const res = await usersApi.listByTenant(accessToken, tenantId, { page: 1, pageSize: 100 });
       setUsers(res.data as unknown as TenantUserRecord[]);
     } catch {
       // Users might not be accessible for this tenant context
