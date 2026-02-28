@@ -720,4 +720,171 @@ export const devicesApi = {
     }),
 };
 
+// --- Designs ---
+
+export interface PlacedDeviceData {
+  id: string;
+  designId: string;
+  deviceId: string;
+  area: string | null;
+  floor: string | null;
+  room: string | null;
+  positionX: number | null;
+  positionY: number | null;
+  rotation: number;
+  fovAngle: number | null;
+  fovDistance: number | null;
+  cameraHeight: number | null;
+  tilt: number | null;
+  notes: string | null;
+  installDetails: string | null;
+  device?: Device | null;
+}
+
+export interface DesignListItem {
+  id: string;
+  tenantId: string;
+  oppId: string | null;
+  name: string;
+  version: number;
+  status: string;
+  createdById: string;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: { id: string; firstName: string; lastName: string };
+  opportunity: { id: string; oppNumber: string; customerName: string; projectName: string } | null;
+  _count: { placedDevices: number };
+}
+
+export interface DesignDetail extends DesignListItem {
+  canvasData: Record<string, unknown>;
+  placedDevices: PlacedDeviceData[];
+}
+
+export interface HardwareScheduleItem {
+  manufacturer: string;
+  model: string;
+  partNumber: string;
+  category: string;
+  description: string | null;
+  quantity: number;
+  areas: string[];
+}
+
+export interface HardwareSchedule {
+  designName: string;
+  version: number;
+  opportunity: { oppNumber: string; customerName: string; projectName: string } | null;
+  totalDevices: number;
+  uniqueDevices: number;
+  items: HardwareScheduleItem[];
+}
+
+export interface SOWDevice {
+  id: string;
+  manufacturer: string;
+  model: string;
+  partNumber: string;
+  category: string;
+  cameraHeight: number | null;
+  fovAngle: number | null;
+  fovDistance: number | null;
+  tilt: number | null;
+  notes: string | null;
+  installDetails: string | null;
+}
+
+export interface SOWRoom {
+  room: string;
+  devices: SOWDevice[];
+}
+
+export interface SOWFloor {
+  floor: string;
+  rooms: SOWRoom[];
+}
+
+export interface SOWArea {
+  area: string;
+  floors: SOWFloor[];
+}
+
+export interface SOW {
+  designName: string;
+  version: number;
+  status: string;
+  createdBy: string;
+  opportunity: { oppNumber: string; customerName: string; projectName: string; installAddress: string | null; installCity: string | null; installState: string | null; installZip: string | null } | null;
+  totalDevices: number;
+  areas: SOWArea[];
+}
+
+export const designsApi = {
+  list: (token: string, query?: Record<string, string>) => {
+    const params = new URLSearchParams(query || {}).toString();
+    return fetchApi<{ success: boolean; data: DesignListItem[]; total: number }>(
+      `/designs${params ? `?${params}` : ''}`,
+      { token },
+    );
+  },
+
+  get: (token: string, id: string) =>
+    fetchApi<{ success: boolean; data: DesignDetail }>(`/designs/${id}`, { token }),
+
+  create: (token: string, data: { name: string; oppId?: string }) =>
+    fetchApi<{ success: boolean; data: DesignListItem }>('/designs', {
+      method: 'POST',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  update: (token: string, id: string, data: { name?: string; oppId?: string }) =>
+    fetchApi<{ success: boolean; data: DesignListItem }>(`/designs/${id}`, {
+      method: 'PUT',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  changeStatus: (token: string, id: string, status: string) =>
+    fetchApi<{ success: boolean; data: DesignListItem }>(`/designs/${id}/status`, {
+      method: 'PUT',
+      token,
+      body: JSON.stringify({ status }),
+    }),
+
+  delete: (token: string, id: string) =>
+    fetchApi<{ success: boolean; message: string }>(`/designs/${id}`, {
+      method: 'DELETE',
+      token,
+    }),
+
+  // Placed devices
+  addDevice: (token: string, designId: string, data: Partial<PlacedDeviceData> & { deviceId: string }) =>
+    fetchApi<{ success: boolean; data: PlacedDeviceData }>(`/designs/${designId}/devices`, {
+      method: 'POST',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  updateDevice: (token: string, designId: string, placedDeviceId: string, data: Partial<PlacedDeviceData>) =>
+    fetchApi<{ success: boolean; data: PlacedDeviceData }>(`/designs/${designId}/devices/${placedDeviceId}`, {
+      method: 'PUT',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  removeDevice: (token: string, designId: string, placedDeviceId: string) =>
+    fetchApi<{ success: boolean; message: string }>(`/designs/${designId}/devices/${placedDeviceId}`, {
+      method: 'DELETE',
+      token,
+    }),
+
+  // Hardware Schedule & SOW
+  hardwareSchedule: (token: string, id: string) =>
+    fetchApi<{ success: boolean; data: HardwareSchedule }>(`/designs/${id}/hardware-schedule`, { token }),
+
+  sow: (token: string, id: string) =>
+    fetchApi<{ success: boolean; data: SOW }>(`/designs/${id}/sow`, { token }),
+};
+
 export { ApiError };

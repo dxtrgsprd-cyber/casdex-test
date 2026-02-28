@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth-store';
-import { oppsApi, Opportunity } from '@/lib/api';
+import { oppsApi, designsApi, Opportunity } from '@/lib/api';
 import { StatusPipeline } from '@/components/ui/status-pipeline';
 
 const STATUS_LABELS: Record<string, string> = {
@@ -145,7 +145,7 @@ export default function OpportunityDetailPage() {
       {activeTab === 'Overview' && <OverviewTab opp={opp} onUpdate={loadOpp} />}
       {activeTab === 'Team' && <TeamTab opp={opp} onUpdate={loadOpp} />}
       {activeTab === 'Surveys' && <SurveysTab opp={opp} />}
-      {activeTab === 'Designs' && <DesignsTab opp={opp} />}
+      {activeTab === 'Designs' && <DesignsTab opp={opp} onRefresh={loadOpp} />}
       {activeTab === 'Documents' && <DocumentsTab opp={opp} />}
       {activeTab === 'Risk' && <RiskTab opp={opp} />}
       {activeTab === 'History' && <HistoryTab opp={opp} />}
@@ -405,25 +405,91 @@ function SurveysTab({ opp }: { opp: Opportunity }) {
 }
 
 // --- Designs Tab ---
-function DesignsTab({ opp }: { opp: Opportunity }) {
+function DesignsTab({ opp, onRefresh }: { opp: Opportunity; onRefresh: () => void }) {
+  const router = useRouter();
+  const { accessToken, roles } = useAuthStore();
+  const [showCreate, setShowCreate] = useState(false);
+  const [createName, setCreateName] = useState('');
+  const [creating, setCreating] = useState(false);
+  const canManage = roles.includes('admin') || roles.includes('manager') || roles.includes('presales');
+
+  const STATUS_COLORS: Record<string, string> = {
+    draft: 'bg-gray-100 text-gray-700',
+    in_progress: 'bg-blue-100 text-blue-700',
+    completed: 'bg-green-100 text-green-700',
+    exported: 'bg-purple-100 text-purple-700',
+  };
+
+  async function handleCreate() {
+    if (!accessToken || !createName.trim()) return;
+    setCreating(true);
+    try {
+      const res = await designsApi.create(accessToken, {
+        name: createName.trim(),
+        oppId: opp.id,
+      });
+      setShowCreate(false);
+      setCreateName('');
+      onRefresh();
+      router.push(`/design/${res.data.id}`);
+    } catch {
+      // ignore
+    } finally {
+      setCreating(false);
+    }
+  }
+
   return (
     <div className="card p-6">
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-semibold text-gray-900">Designs</h3>
-        <button className="btn-primary text-sm">New Design</button>
+        {canManage && (
+          <button onClick={() => setShowCreate(true)} className="btn-primary text-sm">
+            New Design
+          </button>
+        )}
       </div>
       {opp.designs.length === 0 ? (
         <p className="text-sm text-gray-500">No designs for this opportunity.</p>
       ) : (
         <div className="space-y-2">
           {opp.designs.map((d) => (
-            <div key={d.id} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+            <div
+              key={d.id}
+              onClick={() => router.push(`/design/${d.id}`)}
+              className="flex items-center justify-between py-2 px-2 border-b border-gray-100 last:border-0 hover:bg-gray-50 cursor-pointer rounded transition-colors"
+            >
               <div>
                 <p className="text-sm font-medium">{d.name} (V{d.version})</p>
               </div>
-              <span className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded">{d.status}</span>
+              <span className={`text-xs px-2 py-1 rounded font-medium ${STATUS_COLORS[d.status] || 'bg-gray-100 text-gray-700'}`}>
+                {d.status.replace(/_/g, ' ')}
+              </span>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Inline create */}
+      {showCreate && (
+        <div className="mt-4 border-t border-gray-200 pt-4">
+          <div className="flex items-center gap-3">
+            <input
+              type="text"
+              className="input-field flex-1"
+              placeholder="Design name..."
+              value={createName}
+              onChange={(e) => setCreateName(e.target.value)}
+              autoFocus
+              onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+            />
+            <button onClick={handleCreate} disabled={creating} className="btn-primary text-sm">
+              {creating ? 'Creating...' : 'Create'}
+            </button>
+            <button onClick={() => setShowCreate(false)} className="btn-secondary text-sm">
+              Cancel
+            </button>
+          </div>
         </div>
       )}
     </div>
