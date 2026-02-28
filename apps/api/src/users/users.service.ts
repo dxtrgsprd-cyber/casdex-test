@@ -91,6 +91,16 @@ export class UsersService {
     };
   }
 
+
+  async listUsersByTenant(
+    tenantId: string,
+    page = 1,
+    pageSize = 25,
+    filters?: { search?: string; roleId?: string; status?: string },
+  ) {
+    return this.listUsers(tenantId, page, pageSize, filters);
+  }
+
   async getUser(userId: string, tenantId: string) {
     const userTenant = await this.prisma.userTenant.findUnique({
       where: { userId_tenantId: { userId, tenantId } },

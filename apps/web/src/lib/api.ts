@@ -163,6 +163,17 @@ export const usersApi = {
     return fetchApi<UsersListResponse>(`/users${qs ? `?${qs}` : ''}`, { token });
   },
 
+  listByTenant: (
+    token: string,
+    tenantId: string,
+    params?: { page?: number; pageSize?: number; search?: string; roleId?: string; status?: string },
+  ) =>
+    fetchApi<UsersListResponse>(`/users/by-tenant/${tenantId}`, {
+      method: 'POST',
+      token,
+      body: JSON.stringify(params ?? {}),
+    }),
+
   get: (token: string, id: string) =>
     fetchApi<{ success: boolean; data: UserDetail }>(`/users/${id}`, { token }),
 
