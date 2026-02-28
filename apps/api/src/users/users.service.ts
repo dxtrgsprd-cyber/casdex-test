@@ -121,8 +121,7 @@ export class UsersService {
           },
         },
         role: {
-          select: { id: true, name: true, displayName: true },
-          include: { permissions: true },
+          select: { id: true, name: true, displayName: true, permissions: true },
         },
       },
     });

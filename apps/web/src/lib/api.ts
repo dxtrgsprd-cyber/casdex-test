@@ -1,4 +1,4 @@
-const rawBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+const rawBase = process.env.NEXT_PUBLIC_API_URL || 'https://casdex-test-production.up.railway.app/api';
 const API_BASE = rawBase.endsWith('/api') ? rawBase : `${rawBase.replace(/\/+$/, '')}/api`;
 
 interface FetchOptions extends RequestInit {
@@ -27,10 +27,15 @@ async function fetchApi<T>(endpoint: string, options: FetchOptions = {}): Promis
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    ...fetchOptions,
-    headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${endpoint}`, {
+      ...fetchOptions,
+      headers,
+    });
+  } catch {
+    throw new ApiError(0, 'Cannot reach the server. Please check your connection and try again.');
+  }
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({ message: 'Request failed' }));
