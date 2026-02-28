@@ -6,6 +6,8 @@ import { RolesModule } from './roles/roles.module';
 import { OpportunitiesModule } from './opportunities/opportunities.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { VendorsModule } from './vendors/vendors.module';
+import { SubcontractorsModule } from './subcontractors/subcontractors.module';
 import { PrismaModule } from './common/prisma.module';
 import { EmailModule } from './email/email.module';
 
@@ -20,6 +22,8 @@ import { EmailModule } from './email/email.module';
     NotificationsModule,
     OpportunitiesModule,
     DashboardModule,
+    VendorsModule,
+    SubcontractorsModule,
   ],
 })
 export class AppModule {}
