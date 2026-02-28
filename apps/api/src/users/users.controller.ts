@@ -98,7 +98,8 @@ export class UsersController {
     @CurrentUser() user: RequestUser,
   ) {
     const isAdmin = user.roles.includes('admin') || user.roles.includes('manager') || user.isGlobalAdmin;
-    const result = await this.usersService.createUser(user.tenantId, dto, isAdmin);
+    const targetTenantId = (user.isGlobalAdmin && dto.tenantId) ? dto.tenantId : user.tenantId;
+    const result = await this.usersService.createUser(targetTenantId, dto, isAdmin);
     return { success: true, data: result };
   }
 
