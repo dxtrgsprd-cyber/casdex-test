@@ -52,6 +52,27 @@ const TOOLS = [
     href: '/tools/wireless-ptp',
     color: 'border-l-teal-500',
   },
+  {
+    title: 'Door Compliance Auditor',
+    description:
+      'ADA, NFPA 101, and state fire marshal compliance checks for access-controlled doors. Validates hardware sets against code requirements.',
+    href: '/tools/door-compliance',
+    color: 'border-l-rose-500',
+  },
+  {
+    title: 'Mantrap Schematic Designer',
+    description:
+      'Wiring schedule, power calculation, and interlock schematic for mantrap door systems. Includes conduit fill and FACP tie-in requirements.',
+    href: '/tools/mantrap-designer',
+    color: 'border-l-violet-500',
+  },
+  {
+    title: 'Access Control Door Builder',
+    description:
+      'Complete door build calculator. Generates electrical load, wiring schedule, and compliance audit for single or mantrap access control doors.',
+    href: '/tools/access-control-builder',
+    color: 'border-l-emerald-500',
+  },
 ];
 
 export default function ToolsPage() {
