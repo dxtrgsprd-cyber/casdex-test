@@ -2,6 +2,11 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import {
+  POWER_SPECS,
+  CONTROLLER_BRANDS,
+  LOCK_BRANDS,
+} from '@/lib/access-control-rules';
 
 // ===== Types =====
 
@@ -21,29 +26,7 @@ interface SchematicResult {
   notes: string[];
 }
 
-// ===== Constants =====
-
-const POWER_SPECS: Record<string, Record<string, number>> = {
-  Verkada: { AC42: 0.5, AC41: 0.4, 'TD52 Intercom': 0.45 },
-  Brivo: { ACS6000: 0.6, ACS300: 0.3 },
-  'Command Access': { 'ML1 Mortise': 0.15, 'LR Panic': 0.9 },
-  Trine: { '3000 Strike': 0.24, '4800 Strike': 0.28 },
-  HES: { '1006 Strike': 0.45, '9600 Surface': 0.45 },
-  Avigilon: { 'Alta Reader': 0.2, 'Video Intercom': 0.6 },
-  Aiphone: { 'IX-DV': 0.35, 'IXG-DM7': 0.5 },
-};
-
-const CONTROLLER_BRANDS = Object.keys(POWER_SPECS).filter(
-  (b) => ['Verkada', 'Brivo', 'Avigilon'].includes(b)
-);
-
-const LOCK_BRANDS = Object.keys(POWER_SPECS).filter(
-  (b) => ['Command Access', 'Trine', 'HES'].includes(b)
-);
-
-const INTERCOM_BRANDS = Object.keys(POWER_SPECS).filter(
-  (b) => ['Verkada', 'Avigilon', 'Aiphone'].includes(b)
-);
+const INTERCOM_BRANDS = ['Verkada', 'Avigilon', 'Aiphone'];
 
 // ===== Calculation Logic =====
 

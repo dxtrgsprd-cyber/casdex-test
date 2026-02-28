@@ -2,183 +2,14 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-
-// ===== Types =====
-
-interface WireSpec {
-  type: string;
-  gauge: string;
-  conductors: string;
-}
-
-interface BuildResult {
-  state: string;
-  doorType: string;
-  electrical: {
-    controllerDraw: number;
-    lockDraw: number;
-    totalDraw: number;
-    minPsu: number;
-  };
-  wiringSchedule: { component: string; spec: WireSpec }[];
-  violations: { code: string; message: string }[];
-  recommendations: string[];
-}
-
-// ===== Constants =====
-
-const POWER_SPECS: Record<string, Record<string, number>> = {
-  Verkada: { AC42: 0.5, AC41: 0.4, 'TD52 Intercom': 0.45 },
-  Brivo: { ACS6000: 0.6, ACS300: 0.3 },
-  'Command Access': { 'ML1 Mortise': 0.15, 'LR Panic': 0.9 },
-  Trine: { '3000 Strike': 0.24, '4800 Strike': 0.28 },
-  HES: { '1006 Strike': 0.45, '9600 Surface': 0.45 },
-  Avigilon: { 'Alta Reader': 0.2, 'Video Intercom': 0.6 },
-  Aiphone: { 'IX-DV': 0.35, 'IXG-DM7': 0.5 },
-};
-
-const CONTROLLER_BRANDS = ['Verkada', 'Brivo', 'Avigilon'];
-const LOCK_BRANDS = ['Command Access', 'Trine', 'HES'];
-
-const DOOR_TYPES = [
-  'Standard Interior',
-  'Fire-Rated',
-  'Fire-Rated Stairwell',
-  'Glass Storefront',
-  'Emergency Exit',
-] as const;
-
-const STATES = [
-  'Louisiana (LASFM/NFPA 101)',
-  'Texas (TFC/NFPA 101)',
-  'Generic (IBC/NFPA 101)',
-] as const;
-
-// ===== Calculation Logic =====
-
-function calculateBuild(
-  ctrlBrand: string,
-  ctrlModel: string,
-  doorType: string,
-  lockBrand: string,
-  lockModel: string,
-  hasAdo: boolean,
-  isMantrap: boolean,
-  state: string,
-): BuildResult {
-  const ctrlDraw = POWER_SPECS[ctrlBrand]?.[ctrlModel] ?? 0.5;
-  const lockDraw = POWER_SPECS[lockBrand]?.[lockModel] ?? 0.5;
-  let totalDraw = ctrlDraw + lockDraw;
-  if (isMantrap) totalDraw *= 2; // Double hardware for two doors
-
-  const minPsu = totalDraw * 1.3;
-
-  // Wiring schedule
-  const wiringSchedule: { component: string; spec: WireSpec }[] = [
-    {
-      component: 'Reader (OSDP)',
-      spec: { type: 'Shielded OSDP', gauge: '22 AWG', conductors: '4C' },
-    },
-    {
-      component: 'Lock',
-      spec: { type: 'Stranded', gauge: '18 AWG', conductors: '2C' },
-    },
-    {
-      component: 'DPS / Status',
-      spec: { type: 'Stranded', gauge: '22 AWG', conductors: '2C' },
-    },
-  ];
-
-  if (hasAdo) {
-    wiringSchedule.push({
-      component: 'Auto-Operator',
-      spec: { type: 'Stranded', gauge: '18 AWG', conductors: '4C' },
-    });
-  }
-
-  if (isMantrap) {
-    // Add second set for door 2
-    wiringSchedule.push(
-      {
-        component: 'Door 2 Reader (OSDP)',
-        spec: { type: 'Shielded OSDP', gauge: '22 AWG', conductors: '4C' },
-      },
-      {
-        component: 'Door 2 Lock',
-        spec: { type: 'Stranded', gauge: '18 AWG', conductors: '2C' },
-      },
-      {
-        component: 'Door 2 DPS / Status',
-        spec: { type: 'Stranded', gauge: '22 AWG', conductors: '2C' },
-      },
-    );
-    if (hasAdo) {
-      wiringSchedule.push({
-        component: 'Door 2 Auto-Operator',
-        spec: { type: 'Stranded', gauge: '18 AWG', conductors: '4C' },
-      });
-    }
-  }
-
-  // Compliance
-  const violations: { code: string; message: string }[] = [];
-  const recommendations: string[] = [];
-
-  // ADA
-  recommendations.push('ADA: Mount readers and actuators between 34" and 48" AFF.');
-
-  // Louisiana / NFPA 101
-  if (state.includes('Louisiana')) {
-    if (doorType.includes('Fire-Rated')) {
-      recommendations.push('LASFM: Fail-Safe hardware required on fire-rated doors. Must tie to FACP for automatic release on fire alarm.');
-    }
-    if (lockModel.toLowerCase().includes('maglock') || lockModel.toLowerCase().includes('mag')) {
-      violations.push({
-        code: 'LASFM',
-        message: 'Maglocks require PIR REX plus pneumatic push-to-exit for Louisiana State Fire Marshal compliance.',
-      });
-    }
-    if (isMantrap) {
-      recommendations.push('LASFM: Mantrap interlocks must drop all locks on fire alarm activation.');
-    }
-  }
-
-  // Fire-rated general
-  if (doorType.includes('Fire-Rated')) {
-    recommendations.push('NFPA 80: Fire-rated doors require self-closing device. Verify door closer is installed.');
-    recommendations.push('NFPA 101: Fail-Safe hardware ensures egress on power loss.');
-  }
-
-  // ADO integration
-  if (hasAdo) {
-    recommendations.push('ADA Integration: Use BEA Br3-X sequencer for latch-then-open timing with auto-operators.');
-  }
-
-  // Mantrap
-  if (isMantrap) {
-    recommendations.push('Interlock: Both doors must never be unlocked simultaneously. Interlock controller required.');
-    recommendations.push('FACP: All locks must release on fire alarm (dry contact tie-in).');
-  }
-
-  // NDAA
-  recommendations.push('NDAA: Verify all access control hardware is SEC. 889 compliant. Check manufacturer certification.');
-
-  return {
-    state,
-    doorType,
-    electrical: {
-      controllerDraw: isMantrap ? ctrlDraw * 2 : ctrlDraw,
-      lockDraw: isMantrap ? lockDraw * 2 : lockDraw,
-      totalDraw,
-      minPsu,
-    },
-    wiringSchedule,
-    violations,
-    recommendations,
-  };
-}
-
-// ===== Component =====
+import {
+  POWER_SPECS,
+  CONTROLLER_BRANDS,
+  LOCK_BRANDS,
+  DOOR_TYPES,
+  STATE_KEYS,
+  calculateBuild,
+} from '@/lib/access-control-rules';
 
 export default function AccessControlBuilderPage() {
   const router = useRouter();
@@ -190,7 +21,7 @@ export default function AccessControlBuilderPage() {
   const [lockModel, setLockModel] = useState('ML1 Mortise');
   const [hasAdo, setHasAdo] = useState(false);
   const [isMantrap, setIsMantrap] = useState(false);
-  const [state, setState] = useState<string>('Louisiana (LASFM/NFPA 101)');
+  const [state, setState] = useState<string>(STATE_KEYS[0]);
 
   const ctrlModels = Object.keys(POWER_SPECS[ctrlBrand] || {});
   const lockModels = Object.keys(POWER_SPECS[lockBrand] || {});
@@ -246,7 +77,7 @@ export default function AccessControlBuilderPage() {
               value={state}
               onChange={(e) => setState(e.target.value)}
             >
-              {STATES.map((s) => (
+              {STATE_KEYS.map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>

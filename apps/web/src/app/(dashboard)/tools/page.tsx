@@ -73,6 +73,13 @@ const TOOLS = [
     href: '/tools/access-control-builder',
     color: 'border-l-emerald-500',
   },
+  {
+    title: 'Compliance Rules Manager',
+    description:
+      'Manage state jurisdiction compliance rules. Upload or export rule sets, check state codes online, and view rule flags for all loaded jurisdictions.',
+    href: '/tools/compliance-rules',
+    color: 'border-l-amber-500',
+  },
 ];
 
 export default function ToolsPage() {

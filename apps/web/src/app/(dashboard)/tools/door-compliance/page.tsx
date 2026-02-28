@@ -2,232 +2,20 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-
-// ===== Types =====
-
-interface HardwareSet {
-  controllerBrand: string;
-  controllerModel: string;
-  lockType: string;
-  hasRex: boolean;
-  rexType: string;
-  hasDps: boolean;
-  hasCloser: boolean;
-}
-
-interface Violation {
-  code: string;
-  message: string;
-  severity: 'violation' | 'warning' | 'info';
-}
-
-interface AuditResult {
-  doorType: string;
-  state: string;
-  hardware: HardwareSet;
-  violations: Violation[];
-  recommendations: string[];
-  passCount: number;
-  failCount: number;
-}
-
-// ===== Constants =====
-
-const DOOR_TYPES = [
-  'Standard Interior',
-  'Fire-Rated',
-  'Fire-Rated Stairwell',
-  'Glass Storefront',
-  'Emergency Exit',
-  'Mantrap',
-] as const;
-
-const STATES = [
-  'Louisiana (LASFM/NFPA 101)',
-  'Texas (TFC/NFPA 101)',
-  'Generic (IBC/NFPA 101)',
-] as const;
-
-const CONTROLLER_BRANDS: Record<string, string[]> = {
-  Verkada: ['AC42', 'AC41'],
-  Brivo: ['ACS6000', 'ACS300'],
-  Avigilon: ['Alta_Reader'],
-};
-
-const LOCK_TYPES = [
-  'Electric Strike (Fail-Secure)',
-  'Electric Strike (Fail-Safe)',
-  'Maglock (Fail-Safe)',
-  'Mortise Lock (Fail-Secure)',
-  'Mortise Lock (Fail-Safe)',
-  'Panic Hardware - Electric Latch Retraction',
-  'Panic Hardware - Electrified Trim',
-] as const;
-
-const REX_TYPES = [
-  'PIR Motion Sensor',
-  'Push Button',
-  'Pneumatic Push-to-Exit Bar',
-  'Touch Sense Bar',
-] as const;
-
-// ===== Audit Logic =====
-
-function runAudit(doorType: string, state: string, hw: HardwareSet): AuditResult {
-  const violations: Violation[] = [];
-  const recommendations: string[] = [];
-  let passCount = 0;
-  let failCount = 0;
-
-  // --- ADA Height Check ---
-  recommendations.push('ADA: Mount readers and actuators between 34" and 48" AFF (Above Finished Floor).');
-  passCount++;
-
-  // --- REX Device Check ---
-  if (!hw.hasRex) {
-    violations.push({
-      code: 'NFPA 101',
-      message: 'Request-to-Exit (REX) device is required on all access-controlled doors for free egress.',
-      severity: 'violation',
-    });
-    failCount++;
-  } else {
-    passCount++;
-  }
-
-  // --- DPS Check ---
-  if (!hw.hasDps) {
-    violations.push({
-      code: 'BEST PRACTICE',
-      message: 'Door Position Switch (DPS) not included. Forced-open and held-open alarms will not function.',
-      severity: 'warning',
-    });
-    failCount++;
-  } else {
-    passCount++;
-  }
-
-  // --- Fire-Rated Door Rules ---
-  const isFireRated = doorType.includes('Fire-Rated');
-  if (isFireRated) {
-    // Must be fail-safe
-    if (!hw.lockType.includes('Fail-Safe')) {
-      violations.push({
-        code: 'NFPA 101 / LASFM',
-        message: 'Fire-rated doors require Fail-Safe hardware. Lock must release on power loss to allow egress.',
-        severity: 'violation',
-      });
-      failCount++;
-    } else {
-      passCount++;
-    }
-
-    // Must have closer
-    if (!hw.hasCloser) {
-      violations.push({
-        code: 'NFPA 80',
-        message: 'Fire-rated doors require a self-closing device (door closer). Frame integrity is compromised without one.',
-        severity: 'violation',
-      });
-      failCount++;
-    } else {
-      passCount++;
-    }
-
-    recommendations.push('FACP Integration: Fail-Safe hardware on fire-rated doors must tie to the Fire Alarm Control Panel (FACP) for automatic release on alarm.');
-  }
-
-  // --- Emergency Exit Rules ---
-  if (doorType === 'Emergency Exit') {
-    if (hw.lockType.includes('Maglock')) {
-      violations.push({
-        code: 'NFPA 101',
-        message: 'Maglocks on emergency exits require both PIR REX and a pneumatic push-to-exit device for code compliance.',
-        severity: 'violation',
-      });
-      failCount++;
-
-      if (hw.hasRex && hw.rexType !== 'PIR Motion Sensor') {
-        violations.push({
-          code: 'NFPA 101',
-          message: 'REX type must be PIR Motion Sensor when using maglocks on emergency exits.',
-          severity: 'warning',
-        });
-      }
-    } else {
-      passCount++;
-    }
-
-    recommendations.push('Emergency exits must provide unimpeded egress at all times per NFPA 101 Life Safety Code.');
-  }
-
-  // --- Maglock General Rules ---
-  if (hw.lockType.includes('Maglock')) {
-    if (state.includes('Louisiana')) {
-      violations.push({
-        code: 'LASFM',
-        message: 'Louisiana State Fire Marshal: Maglocks require PIR REX plus pneumatic push-to-exit for compliance.',
-        severity: 'violation',
-      });
-      failCount++;
-    }
-    recommendations.push('Maglocks are Fail-Safe by nature. Ensure backup power (UPS) if sustained locking is required during outages.');
-  }
-
-  // --- Mantrap Rules ---
-  if (doorType === 'Mantrap') {
-    recommendations.push('Mantrap interlock: Both doors must never be unlocked simultaneously. Interlock controller required.');
-    if (isFireRated || state.includes('Louisiana')) {
-      recommendations.push('LASFM/NFPA: Mantrap interlocks must drop all locks on Fire Alarm activation.');
-    }
-  }
-
-  // --- Glass Storefront Rules ---
-  if (doorType === 'Glass Storefront') {
-    if (hw.lockType.includes('Maglock')) {
-      recommendations.push('Glass storefront maglocks: Verify maglock holding force is rated for the door weight. Header-mount preferred over surface mount.');
-    }
-    if (!hw.hasCloser) {
-      recommendations.push('Glass storefront doors typically require a closer or floor spring for controlled operation.');
-    }
-  }
-
-  // --- Panic Hardware Rules ---
-  if (hw.lockType.includes('Panic Hardware')) {
-    passCount++;
-    recommendations.push('Panic hardware provides mechanical free egress. Electric latch retraction adds remote unlock capability.');
-    if (hw.lockType.includes('Electric Latch Retraction')) {
-      recommendations.push('ELR devices draw higher current (0.9A typical). Verify PSU capacity and wire gauge (18 AWG 2C minimum).');
-    }
-  }
-
-  // --- Closer Check for Non-Fire-Rated ---
-  if (!isFireRated && hw.hasCloser) {
-    passCount++;
-    recommendations.push('Door closer installed. Verify ADA compliance: closing time must be >= 5 seconds from 90 degrees to 12 degrees.');
-  }
-
-  // --- NDAA Compliance Note ---
-  recommendations.push('NDAA: Verify all access control hardware is SEC. 889 compliant. Check manufacturer NDAA certification status.');
-
-  return {
-    doorType,
-    state,
-    hardware: hw,
-    violations,
-    recommendations,
-    passCount,
-    failCount,
-  };
-}
-
-// ===== Component =====
+import {
+  DOOR_TYPES_WITH_MANTRAP,
+  STATE_KEYS,
+  CONTROLLER_BRAND_MODELS,
+  LOCK_TYPES,
+  REX_TYPES,
+  runComplianceAudit,
+} from '@/lib/access-control-rules';
 
 export default function DoorCompliancePage() {
   const router = useRouter();
 
   const [doorType, setDoorType] = useState<string>('Standard Interior');
-  const [state, setState] = useState<string>('Louisiana (LASFM/NFPA 101)');
+  const [state, setState] = useState<string>(STATE_KEYS[0]);
   const [controllerBrand, setControllerBrand] = useState('Verkada');
   const [controllerModel, setControllerModel] = useState('AC42');
   const [lockType, setLockType] = useState<string>('Electric Strike (Fail-Secure)');
@@ -236,9 +24,9 @@ export default function DoorCompliancePage() {
   const [hasDps, setHasDps] = useState(true);
   const [hasCloser, setHasCloser] = useState(false);
 
-  const models = CONTROLLER_BRANDS[controllerBrand] || [];
+  const models = CONTROLLER_BRAND_MODELS[controllerBrand] || [];
 
-  const result = runAudit(doorType, state, {
+  const result = runComplianceAudit(doorType, state, {
     controllerBrand,
     controllerModel,
     lockType,
@@ -283,7 +71,7 @@ export default function DoorCompliancePage() {
               value={doorType}
               onChange={(e) => setDoorType(e.target.value)}
             >
-              {DOOR_TYPES.map((dt) => (
+              {DOOR_TYPES_WITH_MANTRAP.map((dt) => (
                 <option key={dt} value={dt}>{dt}</option>
               ))}
             </select>
@@ -295,7 +83,7 @@ export default function DoorCompliancePage() {
               value={state}
               onChange={(e) => setState(e.target.value)}
             >
-              {STATES.map((s) => (
+              {STATE_KEYS.map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>
@@ -307,11 +95,11 @@ export default function DoorCompliancePage() {
               value={controllerBrand}
               onChange={(e) => {
                 setControllerBrand(e.target.value);
-                const newModels = CONTROLLER_BRANDS[e.target.value] || [];
+                const newModels = CONTROLLER_BRAND_MODELS[e.target.value] || [];
                 setControllerModel(newModels[0] || '');
               }}
             >
-              {Object.keys(CONTROLLER_BRANDS).map((b) => (
+              {Object.keys(CONTROLLER_BRAND_MODELS).map((b) => (
                 <option key={b} value={b}>{b}</option>
               ))}
             </select>
@@ -509,7 +297,6 @@ export default function DoorCompliancePage() {
             <strong>Notes:</strong> This tool checks common ADA, NFPA 101 Life Safety Code, NFPA 80 Fire Door,
             and state fire marshal requirements. It does not replace a licensed fire protection engineer review.
             Always verify local AHJ (Authority Having Jurisdiction) requirements for your specific installation.
-            Louisiana checks follow LASFM (Louisiana State Fire Marshal) amendments to NFPA 101.
           </p>
         </div>
       </div>

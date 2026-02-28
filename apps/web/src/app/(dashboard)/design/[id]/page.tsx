@@ -14,6 +14,22 @@ import {
   HardwareSchedule,
   SOW,
 } from '@/lib/api';
+import {
+  POWER_SPECS as AC_POWER_SPECS,
+  CONTROLLER_BRANDS as AC_CTRL_BRANDS,
+  LOCK_BRANDS as AC_LOCK_BRANDS,
+  CONTROLLER_BRAND_MODELS as AC_CTRL_MODELS,
+  DOOR_TYPES as AC_DOOR_TYPES,
+  LOCK_TYPES as AC_LOCK_TYPES,
+  REX_TYPES as AC_REX_TYPES,
+  STATE_KEYS as AC_STATE_KEYS,
+  STATE_JURISDICTIONS,
+  calculateBuild,
+  runComplianceAudit,
+  type DoorConfig,
+  type BuildResult,
+  type AuditResult,
+} from '@/lib/access-control-rules';
 
 const STATUS_LABELS: Record<string, string> = {
   draft: 'Draft',
@@ -53,7 +69,30 @@ const RISK_COLORS: Record<string, string> = {
   critical: 'text-red-900 bg-red-200',
 };
 
-type TabType = 'devices' | 'hardware-schedule' | 'sow';
+type TabType = 'devices' | 'access-control' | 'hardware-schedule' | 'sow';
+
+// ============================================================
+// Door Config Storage (saved with design, linked to opportunity)
+// ============================================================
+
+const DOOR_CONFIGS_KEY = 'casdex_door_configs';
+
+function loadDoorConfigs(designId: string): DoorConfig[] {
+  try {
+    const raw = localStorage.getItem(`${DOOR_CONFIGS_KEY}_${designId}`);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveDoorConfigs(designId: string, configs: DoorConfig[]): void {
+  localStorage.setItem(`${DOOR_CONFIGS_KEY}_${designId}`, JSON.stringify(configs));
+}
+
+function generateDoorId(): string {
+  return `door_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
 
 // ============================================================
 // FOV Analysis (embedded from FOV Calculator engine)
@@ -453,6 +492,7 @@ export default function DesignDetailPage() {
         <div className="flex gap-6">
           {[
             { key: 'devices' as TabType, label: 'Devices' },
+            { key: 'access-control' as TabType, label: 'Access Control' },
             { key: 'hardware-schedule' as TabType, label: 'Hardware Schedule' },
             { key: 'sow' as TabType, label: 'Statement of Work' },
           ].map((t) => (
@@ -474,6 +514,9 @@ export default function DesignDetailPage() {
       {/* Tab Content */}
       {tab === 'devices' && (
         <DevicesTab design={design} canManage={canManage} onRefresh={loadDesign} />
+      )}
+      {tab === 'access-control' && (
+        <AccessControlTab design={design} opp={opp} />
       )}
       {tab === 'hardware-schedule' && (
         <HardwareScheduleTab designId={design.id} design={design} />
@@ -852,6 +895,13 @@ function AddDeviceModal({ designId, onClose, onAdded }: { designId: string; onCl
                 model={selectedDevice.model}
               />
             )}
+            {/* Access Control: Inline Door Builder & Compliance */}
+            {selectedDevice?.category === 'access_control' && (
+              <DoorBuilderInlinePanel />
+            )}
+            {selectedDevice?.category === 'access_control' && (
+              <ComplianceInlinePanel />
+            )}
             <div className="w-32">
               <label className="label">Quantity</label>
               <input type="number" className="input-field" min={1} max={100} value={quantity} onChange={(e) => setQuantity(Math.max(1, Number(e.target.value) || 1))} />
@@ -1226,6 +1276,82 @@ function HardwareScheduleTab({ designId, design }: { designId: string; design: D
         );
       })()}
 
+      {/* Access Control Door Hardware (from door configs) */}
+      {(() => {
+        const doorConfigs = loadDoorConfigs(designId);
+        if (doorConfigs.length === 0) return null;
+        const doorLines: { label: string; doorType: string; controller: string; lock: string; lockType: string; draw: string; psu: string; violations: number; area: string }[] = [];
+        for (const cfg of doorConfigs) {
+          const build = calculateBuild(cfg.controllerBrand, cfg.controllerModel, cfg.doorType, cfg.lockBrand, cfg.lockModel, cfg.hasAdo, cfg.isMantrap, cfg.state);
+          const audit = runComplianceAudit(cfg.doorType, cfg.state, {
+            controllerBrand: cfg.controllerBrand, controllerModel: cfg.controllerModel,
+            lockType: cfg.lockType, hasRex: cfg.hasRex, rexType: cfg.rexType,
+            hasDps: cfg.hasDps, hasCloser: cfg.hasCloser,
+          });
+          doorLines.push({
+            label: cfg.doorLabel,
+            doorType: cfg.doorType,
+            controller: `${cfg.controllerBrand} ${cfg.controllerModel}`,
+            lock: `${cfg.lockBrand} ${cfg.lockModel}`,
+            lockType: cfg.lockType,
+            draw: build.electrical.totalDraw.toFixed(2),
+            psu: build.electrical.minPsu.toFixed(2),
+            violations: audit.violations.filter((v) => v.severity === 'violation').length,
+            area: [cfg.area, cfg.floor, cfg.room].filter(Boolean).join(' / ') || '-',
+          });
+        }
+        const totalAcDraw = doorLines.reduce((s, d) => s + parseFloat(d.draw), 0);
+        const totalAcPsu = totalAcDraw * 1.3;
+        const totalViolations = doorLines.reduce((s, d) => s + d.violations, 0);
+        return (
+          <div className="card overflow-hidden">
+            <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-gray-800">Access Control -- Door Hardware Schedule</h3>
+                <div className="flex items-center gap-4 text-xs text-gray-500">
+                  <span>Doors: <strong className="text-gray-900">{doorLines.length}</strong></span>
+                  <span>Total Draw: <strong className="text-gray-900">{totalAcDraw.toFixed(2)}A</strong></span>
+                  <span>Min PSU: <strong className="text-gray-900">{totalAcPsu.toFixed(2)}A</strong></span>
+                  {totalViolations > 0 && (
+                    <span className="inline-flex px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">{totalViolations} Violation(s)</span>
+                  )}
+                </div>
+              </div>
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Door</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Type</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Controller</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Lock</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Draw</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Status</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Location</th>
+                </tr>
+              </thead>
+              <tbody>
+                {doorLines.map((door, i) => (
+                  <tr key={i} className="border-b border-gray-100">
+                    <td className="px-4 py-2 font-medium text-gray-900">{door.label}</td>
+                    <td className="px-4 py-2 text-gray-700">{door.doorType}</td>
+                    <td className="px-4 py-2 text-gray-700">{door.controller}</td>
+                    <td className="px-4 py-2 text-gray-700">{door.lock}</td>
+                    <td className="px-4 py-2 font-bold text-gray-900">{door.draw}A</td>
+                    <td className="px-4 py-2">
+                      <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${door.violations > 0 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                        {door.violations > 0 ? `${door.violations} Fail` : 'PASS'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2 text-gray-400 text-xs">{door.area}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })()}
+
       {/* Infrastructure (only if cameras) */}
       {cameraCount > 0 && (
         <>
@@ -1389,6 +1515,620 @@ function SOWTab({ designId }: { designId: string }) {
           </div>
         ))
       )}
+    </div>
+  );
+}
+
+// ===== Door Builder Inline Panel (access_control devices in AddDeviceModal) =====
+
+function DoorBuilderInlinePanel() {
+  const [expanded, setExpanded] = useState(false);
+  const [ctrlBrand, setCtrlBrand] = useState('Verkada');
+  const [ctrlModel, setCtrlModel] = useState('AC42');
+  const [doorType, setDoorType] = useState<string>('Standard Interior');
+  const [lockBrand, setLockBrand] = useState('Command Access');
+  const [lockModel, setLockModel] = useState('ML1 Mortise');
+  const [hasAdo, setHasAdo] = useState(false);
+  const [stateKey, setStateKey] = useState(AC_STATE_KEYS[0]);
+
+  const ctrlModels = Object.keys(AC_POWER_SPECS[ctrlBrand] || {});
+  const lockModels = Object.keys(AC_POWER_SPECS[lockBrand] || {});
+
+  const result = calculateBuild(ctrlBrand, ctrlModel, doorType, lockBrand, lockModel, hasAdo, false, stateKey);
+
+  return (
+    <div className="border border-teal-200 rounded bg-teal-50/50">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between px-4 py-2 text-sm font-medium text-teal-800"
+      >
+        <span>Door Builder -- Power & Wiring</span>
+        <span className="text-xs text-teal-500">{expanded ? 'collapse' : 'expand'}</span>
+      </button>
+      {expanded && (
+        <div className="px-4 pb-3 space-y-3">
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="text-xs text-gray-500">Door Type</label>
+              <select className="input-field text-xs py-1" value={doorType} onChange={(e) => setDoorType(e.target.value)}>
+                {AC_DOOR_TYPES.map((dt) => <option key={dt} value={dt}>{dt}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500">Jurisdiction</label>
+              <select className="input-field text-xs py-1" value={stateKey} onChange={(e) => setStateKey(e.target.value)}>
+                {AC_STATE_KEYS.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500">ADA Auto-Op</label>
+              <label className="flex items-center gap-1 mt-1 text-xs text-gray-600 cursor-pointer">
+                <input type="checkbox" checked={hasAdo} onChange={(e) => setHasAdo(e.target.checked)} className="rounded border-gray-300" />
+                Yes
+              </label>
+            </div>
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            <div>
+              <label className="text-xs text-gray-500">Controller</label>
+              <select className="input-field text-xs py-1" value={ctrlBrand} onChange={(e) => { setCtrlBrand(e.target.value); setCtrlModel(Object.keys(AC_POWER_SPECS[e.target.value] || {})[0] || ''); }}>
+                {AC_CTRL_BRANDS.map((b) => <option key={b} value={b}>{b}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500">Model</label>
+              <select className="input-field text-xs py-1" value={ctrlModel} onChange={(e) => setCtrlModel(e.target.value)}>
+                {ctrlModels.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500">Lock</label>
+              <select className="input-field text-xs py-1" value={lockBrand} onChange={(e) => { setLockBrand(e.target.value); setLockModel(Object.keys(AC_POWER_SPECS[e.target.value] || {})[0] || ''); }}>
+                {AC_LOCK_BRANDS.map((b) => <option key={b} value={b}>{b}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500">Model</label>
+              <select className="input-field text-xs py-1" value={lockModel} onChange={(e) => setLockModel(e.target.value)}>
+                {lockModels.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Results summary */}
+          <div className="grid grid-cols-4 gap-2 text-xs">
+            <div><span className="text-gray-400">Controller</span><p className="font-semibold text-gray-900">{result.electrical.controllerDraw.toFixed(2)}A</p></div>
+            <div><span className="text-gray-400">Lock</span><p className="font-semibold text-gray-900">{result.electrical.lockDraw.toFixed(2)}A</p></div>
+            <div><span className="text-gray-400">Total</span><p className="font-semibold text-gray-900">{result.electrical.totalDraw.toFixed(2)}A</p></div>
+            <div><span className="text-gray-400">Min PSU</span><p className="font-semibold text-gray-900">{result.electrical.minPsu.toFixed(2)}A</p></div>
+          </div>
+
+          {/* Wiring schedule mini */}
+          <div className="text-xs space-y-0.5">
+            {result.wiringSchedule.map((row, i) => (
+              <div key={i} className="flex gap-2">
+                <span className="text-gray-500 w-28 shrink-0">{row.component}</span>
+                <span className="text-teal-700 font-mono">{row.spec.gauge} {row.spec.conductors} {row.spec.type}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Violations */}
+          {result.violations.length > 0 && (
+            <div className="space-y-1">
+              {result.violations.map((v, i) => (
+                <div key={i} className="flex items-start gap-2 text-xs">
+                  <span className="inline-flex px-1.5 py-0.5 rounded font-medium bg-red-100 text-red-700 shrink-0">{v.code}</span>
+                  <span className="text-gray-600">{v.message}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ===== Compliance Inline Panel (access_control devices in AddDeviceModal) =====
+
+function ComplianceInlinePanel() {
+  const [expanded, setExpanded] = useState(false);
+  const [doorType, setDoorType] = useState<string>('Standard Interior');
+  const [stateKey, setStateKey] = useState(AC_STATE_KEYS[0]);
+  const [lockType, setLockType] = useState<string>('Electric Strike (Fail-Secure)');
+  const [hasRex, setHasRex] = useState(true);
+  const [rexType, setRexType] = useState('PIR Motion Sensor');
+  const [hasDps, setHasDps] = useState(true);
+  const [hasCloser, setHasCloser] = useState(false);
+
+  const audit = runComplianceAudit(doorType, stateKey, {
+    controllerBrand: 'Verkada',
+    controllerModel: 'AC42',
+    lockType,
+    hasRex,
+    rexType,
+    hasDps,
+    hasCloser,
+  });
+
+  const violationCount = audit.violations.filter((v) => v.severity === 'violation').length;
+
+  return (
+    <div className="border border-rose-200 rounded bg-rose-50/50">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between px-4 py-2 text-sm font-medium text-rose-800"
+      >
+        <span>
+          Compliance Audit
+          {violationCount > 0 && <span className="ml-2 text-xs font-semibold text-red-600">{violationCount} violation(s)</span>}
+          {violationCount === 0 && expanded && <span className="ml-2 text-xs font-semibold text-green-600">PASS</span>}
+        </span>
+        <span className="text-xs text-rose-500">{expanded ? 'collapse' : 'expand'}</span>
+      </button>
+      {expanded && (
+        <div className="px-4 pb-3 space-y-3">
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="text-xs text-gray-500">Door Type</label>
+              <select className="input-field text-xs py-1" value={doorType} onChange={(e) => setDoorType(e.target.value)}>
+                {AC_DOOR_TYPES.map((dt) => <option key={dt} value={dt}>{dt}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500">Jurisdiction</label>
+              <select className="input-field text-xs py-1" value={stateKey} onChange={(e) => setStateKey(e.target.value)}>
+                {AC_STATE_KEYS.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500">Lock Type</label>
+              <select className="input-field text-xs py-1" value={lockType} onChange={(e) => setLockType(e.target.value)}>
+                {AC_LOCK_TYPES.map((lt) => <option key={lt} value={lt}>{lt}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-4">
+            <label className="flex items-center gap-1 text-xs text-gray-600 cursor-pointer">
+              <input type="checkbox" checked={hasRex} onChange={(e) => setHasRex(e.target.checked)} className="rounded border-gray-300" />
+              REX
+            </label>
+            {hasRex && (
+              <select className="input-field text-xs py-1 w-40" value={rexType} onChange={(e) => setRexType(e.target.value)}>
+                {AC_REX_TYPES.map((rt) => <option key={rt} value={rt}>{rt}</option>)}
+              </select>
+            )}
+            <label className="flex items-center gap-1 text-xs text-gray-600 cursor-pointer">
+              <input type="checkbox" checked={hasDps} onChange={(e) => setHasDps(e.target.checked)} className="rounded border-gray-300" />
+              DPS
+            </label>
+            <label className="flex items-center gap-1 text-xs text-gray-600 cursor-pointer">
+              <input type="checkbox" checked={hasCloser} onChange={(e) => setHasCloser(e.target.checked)} className="rounded border-gray-300" />
+              Door Closer
+            </label>
+          </div>
+
+          {/* Status */}
+          <div className={`px-3 py-2 rounded text-xs font-semibold ${violationCount > 0 ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
+            {violationCount > 0
+              ? `FAIL -- ${violationCount} violation(s)`
+              : `PASS -- ${audit.passCount} checks passed`}
+          </div>
+
+          {/* Violations */}
+          {audit.violations.length > 0 && (
+            <div className="space-y-1">
+              {audit.violations.map((v, i) => (
+                <div key={i} className="flex items-start gap-2 text-xs">
+                  <span className={`inline-flex px-1.5 py-0.5 rounded font-medium shrink-0 ${
+                    v.severity === 'violation' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                  }`}>
+                    {v.severity === 'violation' ? 'VIOLATION' : 'WARNING'}
+                  </span>
+                  <span className="text-gray-600">[{v.code}] {v.message}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ===== Access Control Tab =====
+
+function AccessControlTab({
+  design,
+  opp,
+}: {
+  design: DesignDetail;
+  opp: Opportunity | null;
+}) {
+  const [doorConfigs, setDoorConfigs] = useState<DoorConfig[]>(() => loadDoorConfigs(design.id));
+  const [showAddDoor, setShowAddDoor] = useState(false);
+  const [editingDoor, setEditingDoor] = useState<DoorConfig | null>(null);
+
+  const acDevices = design.placedDevices.filter((pd) => pd.device?.category === 'access_control');
+
+  function handleSaveConfig(config: DoorConfig) {
+    const updated = config.id
+      ? doorConfigs.map((c) => (c.id === config.id ? config : c))
+      : [...doorConfigs, { ...config, id: generateDoorId() }];
+    setDoorConfigs(updated);
+    saveDoorConfigs(design.id, updated);
+    setShowAddDoor(false);
+    setEditingDoor(null);
+  }
+
+  function handleDeleteConfig(id: string) {
+    const updated = doorConfigs.filter((c) => c.id !== id);
+    setDoorConfigs(updated);
+    saveDoorConfigs(design.id, updated);
+  }
+
+  // Calculate totals
+  const totalDraw = doorConfigs.reduce((sum, cfg) => {
+    const build = calculateBuild(
+      cfg.controllerBrand, cfg.controllerModel, cfg.doorType,
+      cfg.lockBrand, cfg.lockModel, cfg.hasAdo, cfg.isMantrap, cfg.state,
+    );
+    return sum + build.electrical.totalDraw;
+  }, 0);
+
+  const totalPsu = totalDraw * 1.3;
+  const allAudits = doorConfigs.map((cfg) => ({
+    config: cfg,
+    audit: runComplianceAudit(cfg.doorType, cfg.state, {
+      controllerBrand: cfg.controllerBrand,
+      controllerModel: cfg.controllerModel,
+      lockType: cfg.lockType,
+      hasRex: cfg.hasRex,
+      rexType: cfg.rexType,
+      hasDps: cfg.hasDps,
+      hasCloser: cfg.hasCloser,
+    }),
+    build: calculateBuild(
+      cfg.controllerBrand, cfg.controllerModel, cfg.doorType,
+      cfg.lockBrand, cfg.lockModel, cfg.hasAdo, cfg.isMantrap, cfg.state,
+    ),
+  }));
+
+  const totalViolations = allAudits.reduce((sum, a) => sum + a.audit.violations.filter((v) => v.severity === 'violation').length, 0);
+
+  return (
+    <div className="space-y-4">
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div className="card p-4 border-l-4 border-l-blue-500">
+          <p className="text-xs text-gray-400 uppercase tracking-wide">ACS Devices</p>
+          <p className="text-2xl font-bold text-gray-900">{acDevices.length}</p>
+        </div>
+        <div className="card p-4 border-l-4 border-l-teal-500">
+          <p className="text-xs text-gray-400 uppercase tracking-wide">Door Configs</p>
+          <p className="text-2xl font-bold text-gray-900">{doorConfigs.length}</p>
+        </div>
+        <div className="card p-4 border-l-4 border-l-amber-500">
+          <p className="text-xs text-gray-400 uppercase tracking-wide">Total Draw</p>
+          <p className="text-2xl font-bold text-gray-900">{totalDraw.toFixed(2)}A</p>
+        </div>
+        <div className="card p-4 border-l-4 border-l-green-500">
+          <p className="text-xs text-gray-400 uppercase tracking-wide">Min PSU</p>
+          <p className="text-2xl font-bold text-gray-900">{totalPsu.toFixed(2)}A</p>
+        </div>
+        <div className={`card p-4 border-l-4 ${totalViolations > 0 ? 'border-l-red-500' : 'border-l-green-500'}`}>
+          <p className="text-xs text-gray-400 uppercase tracking-wide">Violations</p>
+          <p className={`text-2xl font-bold ${totalViolations > 0 ? 'text-red-700' : 'text-green-700'}`}>{totalViolations}</p>
+        </div>
+      </div>
+
+      {/* OPP link info */}
+      {opp && (
+        <div className="card p-3 bg-gray-50">
+          <p className="text-xs text-gray-500">
+            Door configurations saved to design <strong>{design.name}</strong> (linked to OPP <strong className="font-mono">{opp.oppNumber}</strong>).
+            Configurations persist with this design and will export to the Hardware Schedule.
+          </p>
+        </div>
+      )}
+
+      {/* Add Door Button */}
+      <div className="flex gap-2">
+        <button onClick={() => setShowAddDoor(true)} className="btn-primary text-sm">
+          Add Door Configuration
+        </button>
+      </div>
+
+      {/* Door Configs Table */}
+      {doorConfigs.length === 0 ? (
+        <div className="card p-8 text-center">
+          <p className="text-sm text-gray-500 mb-3">No door configurations yet</p>
+          <p className="text-xs text-gray-400">Add a door configuration to see power calculations, wiring schedules, and compliance audits.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {allAudits.map(({ config: cfg, audit, build }) => {
+            const vCount = audit.violations.filter((v) => v.severity === 'violation').length;
+            return (
+              <div key={cfg.id} className="card overflow-hidden">
+                <div className={`px-4 py-2 border-b border-gray-200 flex items-center justify-between ${vCount > 0 ? 'bg-red-50' : 'bg-green-50'}`}>
+                  <div className="flex items-center gap-3">
+                    <h3 className="text-sm font-semibold text-gray-800">{cfg.doorLabel}</h3>
+                    <span className="text-xs text-gray-500">{cfg.doorType}</span>
+                    <span className="text-xs text-gray-400">{cfg.state}</span>
+                    <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${vCount > 0 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                      {vCount > 0 ? `${vCount} Violation(s)` : 'COMPLIANT'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setEditingDoor(cfg)} className="text-primary-600 hover:text-primary-700 text-xs font-medium">Edit</button>
+                    <button onClick={() => handleDeleteConfig(cfg.id!)} className="text-red-500 hover:text-red-700 text-xs font-medium">Remove</button>
+                  </div>
+                </div>
+                <div className="p-4 space-y-3">
+                  {/* Power & Config Summary */}
+                  <div className="grid grid-cols-2 md:grid-cols-6 gap-3 text-xs">
+                    <div><span className="text-gray-400">Controller</span><p className="font-medium text-gray-900">{cfg.controllerBrand} {cfg.controllerModel}</p></div>
+                    <div><span className="text-gray-400">Lock</span><p className="font-medium text-gray-900">{cfg.lockBrand} {cfg.lockModel}</p></div>
+                    <div><span className="text-gray-400">Lock Type</span><p className="font-medium text-gray-900">{cfg.lockType}</p></div>
+                    <div><span className="text-gray-400">Total Draw</span><p className="font-bold text-gray-900">{build.electrical.totalDraw.toFixed(2)}A</p></div>
+                    <div><span className="text-gray-400">Min PSU</span><p className="font-bold text-gray-900">{build.electrical.minPsu.toFixed(2)}A</p></div>
+                    <div><span className="text-gray-400">Location</span><p className="font-medium text-gray-700">{[cfg.area, cfg.floor, cfg.room].filter(Boolean).join(' / ') || '-'}</p></div>
+                  </div>
+
+                  {/* Wiring Schedule */}
+                  <div className="text-xs">
+                    <p className="font-medium text-gray-600 mb-1">Wiring Schedule</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-0.5">
+                      {build.wiringSchedule.map((row, i) => (
+                        <div key={i} className="flex gap-2">
+                          <span className="text-gray-500 w-28 shrink-0">{row.component}</span>
+                          <span className="text-teal-700 font-mono">{row.spec.gauge} {row.spec.conductors} {row.spec.type}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Violations */}
+                  {audit.violations.length > 0 && (
+                    <div className="space-y-1">
+                      {audit.violations.map((v, i) => (
+                        <div key={i} className="flex items-start gap-2 text-xs">
+                          <span className={`inline-flex px-1.5 py-0.5 rounded font-medium shrink-0 ${
+                            v.severity === 'violation' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                          }`}>
+                            {v.severity === 'violation' ? 'VIOLATION' : 'WARNING'}
+                          </span>
+                          <span className="text-gray-600">[{v.code}] {v.message}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Add/Edit Door Modal */}
+      {(showAddDoor || editingDoor) && (
+        <DoorConfigModal
+          existing={editingDoor}
+          onSave={handleSaveConfig}
+          onClose={() => { setShowAddDoor(false); setEditingDoor(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ===== Door Config Modal (Add/Edit) =====
+
+function DoorConfigModal({
+  existing,
+  onSave,
+  onClose,
+}: {
+  existing: DoorConfig | null;
+  onSave: (config: DoorConfig) => void;
+  onClose: () => void;
+}) {
+  const [doorLabel, setDoorLabel] = useState(existing?.doorLabel || '');
+  const [doorType, setDoorType] = useState(existing?.doorType || 'Standard Interior');
+  const [stateKey, setStateKey] = useState(existing?.state || AC_STATE_KEYS[0]);
+  const [ctrlBrand, setCtrlBrand] = useState(existing?.controllerBrand || 'Verkada');
+  const [ctrlModel, setCtrlModel] = useState(existing?.controllerModel || 'AC42');
+  const [lockBrand, setLockBrand] = useState(existing?.lockBrand || 'Command Access');
+  const [lockModel, setLockModel] = useState(existing?.lockModel || 'ML1 Mortise');
+  const [lockType, setLockType] = useState(existing?.lockType || 'Electric Strike (Fail-Secure)');
+  const [hasRex, setHasRex] = useState(existing?.hasRex ?? true);
+  const [rexType, setRexType] = useState(existing?.rexType || 'PIR Motion Sensor');
+  const [hasDps, setHasDps] = useState(existing?.hasDps ?? true);
+  const [hasCloser, setHasCloser] = useState(existing?.hasCloser ?? false);
+  const [hasAdo, setHasAdo] = useState(existing?.hasAdo ?? false);
+  const [isMantrap, setIsMantrap] = useState(existing?.isMantrap ?? false);
+  const [area, setArea] = useState(existing?.area || '');
+  const [floor, setFloor] = useState(existing?.floor || '');
+  const [room, setRoom] = useState(existing?.room || '');
+  const [notes, setNotes] = useState(existing?.notes || '');
+
+  const ctrlModels = Object.keys(AC_POWER_SPECS[ctrlBrand] || {});
+  const lockModels = Object.keys(AC_POWER_SPECS[lockBrand] || {});
+
+  // Live build preview
+  const build = calculateBuild(ctrlBrand, ctrlModel, doorType, lockBrand, lockModel, hasAdo, isMantrap, stateKey);
+  const audit = runComplianceAudit(doorType, stateKey, {
+    controllerBrand: ctrlBrand, controllerModel: ctrlModel, lockType,
+    hasRex, rexType, hasDps, hasCloser,
+  });
+  const vCount = audit.violations.filter((v) => v.severity === 'violation').length;
+
+  function handleSave() {
+    if (!doorLabel.trim()) return;
+    onSave({
+      id: existing?.id,
+      doorLabel: doorLabel.trim(),
+      doorType, state: stateKey,
+      controllerBrand: ctrlBrand, controllerModel: ctrlModel,
+      lockBrand, lockModel, lockType,
+      hasRex, rexType, hasDps, hasCloser, hasAdo, isMantrap,
+      area: area || undefined, floor: floor || undefined,
+      room: room || undefined, notes: notes || undefined,
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-8 bg-black/30">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+          <h2 className="text-lg font-semibold text-gray-900">{existing ? 'Edit Door Configuration' : 'Add Door Configuration'}</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">x</button>
+        </div>
+        <div className="p-6 space-y-4">
+          {/* Door Label */}
+          <div>
+            <label className="label">Door Label</label>
+            <input type="text" className="input-field" placeholder="e.g. Main Lobby Entry, Stairwell B Door 2" value={doorLabel} onChange={(e) => setDoorLabel(e.target.value)} autoFocus />
+          </div>
+
+          {/* Door & Jurisdiction */}
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className="label">Door Type</label>
+              <select className="input-field text-sm" value={doorType} onChange={(e) => setDoorType(e.target.value)}>
+                {AC_DOOR_TYPES.map((dt) => <option key={dt} value={dt}>{dt}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Jurisdiction</label>
+              <select className="input-field text-sm" value={stateKey} onChange={(e) => setStateKey(e.target.value)}>
+                {AC_STATE_KEYS.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Lock Type</label>
+              <select className="input-field text-sm" value={lockType} onChange={(e) => setLockType(e.target.value)}>
+                {AC_LOCK_TYPES.map((lt) => <option key={lt} value={lt}>{lt}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Controller & Lock Hardware */}
+          <div className="grid grid-cols-4 gap-4">
+            <div>
+              <label className="label">Controller Brand</label>
+              <select className="input-field text-sm" value={ctrlBrand} onChange={(e) => { setCtrlBrand(e.target.value); setCtrlModel(Object.keys(AC_POWER_SPECS[e.target.value] || {})[0] || ''); }}>
+                {AC_CTRL_BRANDS.map((b) => <option key={b} value={b}>{b}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Controller Model</label>
+              <select className="input-field text-sm" value={ctrlModel} onChange={(e) => setCtrlModel(e.target.value)}>
+                {ctrlModels.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Lock Brand</label>
+              <select className="input-field text-sm" value={lockBrand} onChange={(e) => { setLockBrand(e.target.value); setLockModel(Object.keys(AC_POWER_SPECS[e.target.value] || {})[0] || ''); }}>
+                {AC_LOCK_BRANDS.map((b) => <option key={b} value={b}>{b}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Lock Model</label>
+              <select className="input-field text-sm" value={lockModel} onChange={(e) => setLockModel(e.target.value)}>
+                {lockModels.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Options */}
+          <div className="flex flex-wrap gap-4">
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <input type="checkbox" checked={hasRex} onChange={(e) => setHasRex(e.target.checked)} className="rounded border-gray-300" />
+              REX Device
+            </label>
+            {hasRex && (
+              <select className="input-field text-sm w-48" value={rexType} onChange={(e) => setRexType(e.target.value)}>
+                {AC_REX_TYPES.map((rt) => <option key={rt} value={rt}>{rt}</option>)}
+              </select>
+            )}
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <input type="checkbox" checked={hasDps} onChange={(e) => setHasDps(e.target.checked)} className="rounded border-gray-300" />
+              DPS
+            </label>
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <input type="checkbox" checked={hasCloser} onChange={(e) => setHasCloser(e.target.checked)} className="rounded border-gray-300" />
+              Door Closer
+            </label>
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <input type="checkbox" checked={hasAdo} onChange={(e) => setHasAdo(e.target.checked)} className="rounded border-gray-300" />
+              ADA Auto-Operator
+            </label>
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <input type="checkbox" checked={isMantrap} onChange={(e) => setIsMantrap(e.target.checked)} className="rounded border-gray-300" />
+              Mantrap (2 doors)
+            </label>
+          </div>
+
+          {/* Location */}
+          <div className="grid grid-cols-3 gap-4">
+            <div><label className="label">Area</label><input type="text" className="input-field" placeholder="e.g. Building A" value={area} onChange={(e) => setArea(e.target.value)} /></div>
+            <div><label className="label">Floor</label><input type="text" className="input-field" placeholder="e.g. Floor 1" value={floor} onChange={(e) => setFloor(e.target.value)} /></div>
+            <div><label className="label">Room</label><input type="text" className="input-field" placeholder="e.g. Main Lobby" value={room} onChange={(e) => setRoom(e.target.value)} /></div>
+          </div>
+
+          <div>
+            <label className="label">Notes</label>
+            <textarea className="input-field" rows={2} placeholder="Door-specific notes..." value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </div>
+
+          {/* Live Preview */}
+          <div className="border border-gray-200 rounded p-3 bg-gray-50 space-y-2">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-semibold text-gray-600 uppercase">Live Preview</h4>
+              <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${vCount > 0 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                {vCount > 0 ? `${vCount} Violation(s)` : 'COMPLIANT'}
+              </span>
+            </div>
+            <div className="grid grid-cols-4 gap-3 text-xs">
+              <div><span className="text-gray-400">Controller</span><p className="font-bold text-gray-900">{build.electrical.controllerDraw.toFixed(2)}A</p></div>
+              <div><span className="text-gray-400">Lock</span><p className="font-bold text-gray-900">{build.electrical.lockDraw.toFixed(2)}A</p></div>
+              <div><span className="text-gray-400">Total</span><p className="font-bold text-gray-900">{build.electrical.totalDraw.toFixed(2)}A</p></div>
+              <div><span className="text-gray-400">Min PSU</span><p className="font-bold text-gray-900">{build.electrical.minPsu.toFixed(2)}A</p></div>
+            </div>
+            {audit.violations.length > 0 && (
+              <div className="space-y-1 mt-2">
+                {audit.violations.slice(0, 3).map((v, i) => (
+                  <div key={i} className="flex items-start gap-2 text-xs">
+                    <span className={`inline-flex px-1 py-0.5 rounded font-medium shrink-0 ${v.severity === 'violation' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
+                      {v.severity === 'violation' ? 'FAIL' : 'WARN'}
+                    </span>
+                    <span className="text-gray-600">{v.message}</span>
+                  </div>
+                ))}
+                {audit.violations.length > 3 && (
+                  <p className="text-xs text-gray-400">+{audit.violations.length - 3} more</p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200">
+          <button onClick={onClose} className="btn-secondary text-sm">Cancel</button>
+          <button
+            onClick={handleSave}
+            disabled={!doorLabel.trim()}
+            className="btn-primary text-sm"
+          >
+            {existing ? 'Save Changes' : 'Add Door'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
