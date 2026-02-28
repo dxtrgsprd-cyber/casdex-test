@@ -7,10 +7,12 @@ import { OpportunitiesModule } from './opportunities/opportunities.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { PrismaModule } from './common/prisma.module';
+import { EmailModule } from './email/email.module';
 
 @Module({
   imports: [
     PrismaModule,
+    EmailModule,
     AuthModule,
     UsersModule,
     TenantsModule,

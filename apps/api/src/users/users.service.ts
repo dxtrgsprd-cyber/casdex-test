@@ -7,11 +7,15 @@ import {
 import { hash } from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { PrismaService } from '../common/prisma.service';
+import { EmailService } from '../email/email.service';
 import { CreateUserDto, UpdateUserDto, UpdateUserRoleDto, UpdateProfileDto } from './dto/users.dto';
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private emailService: EmailService,
+  ) {}
 
   async listUsers(
     tenantId: string,
@@ -208,10 +212,11 @@ export class UsersService {
         },
       });
 
-      // TODO: Send invite email with link containing inviteToken
-      if (process.env.NODE_ENV === 'development') {
-        console.log(`Invite token for ${dto.email}: ${inviteToken}`);
-      }
+      const tenant = await this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { name: true },
+      });
+      this.emailService.sendInvite(dto.email, inviteToken, tenant?.name || 'your organization');
     }
 
     return this.getUser(user.id, tenantId);

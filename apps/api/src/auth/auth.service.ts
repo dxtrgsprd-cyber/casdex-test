@@ -8,6 +8,7 @@ import { JwtService } from '@nestjs/jwt';
 import { compare, hash } from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { PrismaService } from '../common/prisma.service';
+import { EmailService } from '../email/email.service';
 
 interface TokenPayload {
   sub: string;
@@ -44,6 +45,7 @@ export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
+    private emailService: EmailService,
   ) {}
 
   async login(email: string, password: string, tenantId?: string): Promise<LoginResult> {
@@ -170,11 +172,19 @@ export class AuthService {
     // Delete the used refresh token (rotation)
     await this.prisma.refreshToken.delete({ where: { id: stored.id } });
 
-    // Decode old access token to get tenant context
-    // We'll reuse the first tenant assignment as default
-    const firstTenant = stored.user.tenants[0];
-    const tenantId = firstTenant?.tenantId || 'global';
-    const roles = firstTenant ? [firstTenant.role.name] : ['global_admin'];
+    // Preserve the tenant context from the original token
+    // Fall back to first tenant assignment if stored tenantId is missing
+    const savedTenantId = stored.tenantId;
+    const matchingTenant = savedTenantId
+      ? stored.user.tenants.find((ut) => ut.tenantId === savedTenantId)
+      : null;
+    const fallbackTenant = stored.user.tenants[0];
+    const tenantId = matchingTenant?.tenantId || fallbackTenant?.tenantId || 'global';
+    const roles = matchingTenant
+      ? [matchingTenant.role.name]
+      : fallbackTenant
+        ? [fallbackTenant.role.name]
+        : ['global_admin'];
 
     return this.generateTokens({
       sub: stored.user.id,
@@ -286,11 +296,7 @@ export class AuthService {
       },
     });
 
-    // TODO: Send email with reset link containing token
-    // For now, log it (development only)
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`Password reset token for ${email}: ${token}`);
-    }
+    this.emailService.sendPasswordReset(email, token);
   }
 
   async changePassword(userId: string, currentPassword: string, newPassword: string): Promise<void> {
@@ -344,6 +350,7 @@ export class AuthService {
       data: {
         token: refreshToken,
         userId: payload.sub,
+        tenantId: payload.tenantId,
         expiresAt,
       },
     });
