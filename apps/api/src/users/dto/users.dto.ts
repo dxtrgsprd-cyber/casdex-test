@@ -4,8 +4,11 @@ import {
   IsOptional,
   IsString,
   IsBoolean,
+  IsInt,
+  Min,
   MinLength,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class CreateUserDto {
   @IsEmail()
@@ -73,4 +76,30 @@ export class UpdateProfileDto {
   @IsString()
   @IsOptional()
   avatar?: string;
+}
+
+export class ListUsersByTenantDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  page?: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  pageSize?: number;
+
+  @IsString()
+  @IsOptional()
+  search?: string;
+
+  @IsString()
+  @IsOptional()
+  roleId?: string;
+
+  @IsString()
+  @IsOptional()
+  status?: string;
 }

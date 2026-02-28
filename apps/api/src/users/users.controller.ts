@@ -12,7 +12,7 @@ import {
   DefaultValuePipe,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
-import { CreateUserDto, UpdateUserDto, UpdateUserRoleDto, UpdateProfileDto } from './dto/users.dto';
+import { CreateUserDto, UpdateUserDto, UpdateUserRoleDto, UpdateProfileDto, ListUsersByTenantDto } from './dto/users.dto';
 import { CurrentUser, RequestUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -41,6 +41,23 @@ export class UsersController {
   }
 
   // --- User management (admin/manager) ---
+
+
+  @Post('by-tenant/:tenantId')
+  @UseGuards(RolesGuard, PermissionsGuard)
+  @Roles('global_admin', 'admin')
+  @RequirePermissions({ module: 'management', action: 'read' })
+  async listUsersByTenant(
+    @Param('tenantId') tenantId: string,
+    @Body() dto: ListUsersByTenantDto,
+  ) {
+    const result = await this.usersService.listUsersByTenant(tenantId, dto.page ?? 1, dto.pageSize ?? 25, {
+      search: dto.search,
+      roleId: dto.roleId,
+      status: dto.status,
+    });
+    return { success: true, ...result };
+  }
 
   @Get()
   @UseGuards(RolesGuard, PermissionsGuard)
