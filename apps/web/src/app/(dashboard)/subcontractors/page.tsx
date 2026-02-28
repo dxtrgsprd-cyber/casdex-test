@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useAuthStore } from '@/stores/auth-store';
-import { subcontractorsApi, Subcontractor } from '@/lib/api';
+import { subcontractorsApi, Subcontractor, ContactEntry } from '@/lib/api';
 
 const COMMON_TRADES = [
   'Low Voltage',
@@ -143,7 +143,6 @@ export default function SubcontractorsPage() {
               <tr className="bg-gray-50 border-b border-gray-200">
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Company</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Contact</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Phone</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Trades</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Territories</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Insurance</th>
@@ -163,18 +162,30 @@ export default function SubcontractorsPage() {
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <div>
-                      <span className="text-gray-600">{s.primaryContact || '-'}</span>
-                      {s.email && (
-                        <span className="block text-xs text-gray-400">{s.email}</span>
-                      )}
-                    </div>
+                    {s.contacts && s.contacts.length > 0 ? (
+                      <div>
+                        <span className="text-gray-600">{(s.contacts[0] as ContactEntry).name}</span>
+                        {(s.contacts[0] as ContactEntry).role && (
+                          <span className="block text-[11px] text-gray-400">{(s.contacts[0] as ContactEntry).role}</span>
+                        )}
+                        {(s.contacts[0] as ContactEntry).email && (
+                          <span className="block text-xs text-gray-400">{(s.contacts[0] as ContactEntry).email}</span>
+                        )}
+                        {(s.contacts[0] as ContactEntry).phone && (
+                          <span className="block text-xs text-gray-400">{(s.contacts[0] as ContactEntry).phone}</span>
+                        )}
+                        {s.contacts.length > 1 && (
+                          <span className="text-xs text-primary-500">+{s.contacts.length - 1} more</span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-gray-400">-</span>
+                    )}
                   </td>
-                  <td className="px-4 py-3 text-gray-600">{s.phone || '-'}</td>
                   <td className="px-4 py-3">
                     {s.trades && s.trades.length > 0 ? (
                       <div className="flex flex-wrap gap-1">
-                        {s.trades.slice(0, 3).map((trade: string) => (
+                        {(s.trades as string[]).slice(0, 3).map((trade) => (
                           <span key={trade} className="inline-flex px-1.5 py-0.5 rounded text-[11px] font-medium bg-blue-50 text-blue-600">
                             {trade}
                           </span>
@@ -190,7 +201,7 @@ export default function SubcontractorsPage() {
                   <td className="px-4 py-3">
                     {s.territories && s.territories.length > 0 ? (
                       <span className="text-gray-600 text-xs">
-                        {s.territories.slice(0, 3).join(', ')}
+                        {(s.territories as string[]).slice(0, 3).join(', ')}
                         {s.territories.length > 3 && ` +${s.territories.length - 3}`}
                       </span>
                     ) : (
@@ -283,11 +294,9 @@ function SubcontractorModal({
   const [isLoading, setIsLoading] = useState(false);
   const [form, setForm] = useState({
     companyName: sub?.companyName || '',
-    primaryContact: sub?.primaryContact || '',
-    email: sub?.email || '',
-    phone: sub?.phone || '',
-    trades: sub?.trades || [] as string[],
-    territories: sub?.territories || [] as string[],
+    contacts: (sub?.contacts || []) as ContactEntry[],
+    trades: (sub?.trades || []) as string[],
+    territories: (sub?.territories || []) as string[],
     insuranceExpiry: sub?.insuranceExpiry ? sub.insuranceExpiry.split('T')[0] : '',
     licenseNumber: sub?.licenseNumber || '',
     notes: sub?.notes || '',
@@ -299,6 +308,7 @@ function SubcontractorModal({
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
+  // Trade management
   function addTrade(trade: string) {
     const trimmed = trade.trim();
     if (trimmed && !form.trades.includes(trimmed)) {
@@ -311,6 +321,7 @@ function SubcontractorModal({
     setForm((prev) => ({ ...prev, trades: prev.trades.filter((t) => t !== trade) }));
   }
 
+  // Territory management
   function addTerritory() {
     const trimmed = newTerritory.trim();
     if (trimmed && !form.territories.includes(trimmed)) {
@@ -323,6 +334,30 @@ function SubcontractorModal({
     setForm((prev) => ({ ...prev, territories: prev.territories.filter((t) => t !== territory) }));
   }
 
+  // Contact management
+  function addContact() {
+    setForm((prev) => ({
+      ...prev,
+      contacts: [...prev.contacts, { name: '', email: '', phone: '', role: '' }],
+    }));
+  }
+
+  function updateContact(index: number, field: keyof ContactEntry, value: string) {
+    setForm((prev) => ({
+      ...prev,
+      contacts: prev.contacts.map((c, i) =>
+        i === index ? { ...c, [field]: value } : c,
+      ),
+    }));
+  }
+
+  function removeContact(index: number) {
+    setForm((prev) => ({
+      ...prev,
+      contacts: prev.contacts.filter((_, i) => i !== index),
+    }));
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!accessToken) return;
@@ -332,9 +367,7 @@ function SubcontractorModal({
     try {
       const data = {
         companyName: form.companyName,
-        primaryContact: form.primaryContact || undefined,
-        email: form.email || undefined,
-        phone: form.phone || undefined,
+        contacts: form.contacts.filter((c) => c.name.trim()),
         trades: form.trades,
         territories: form.territories,
         insuranceExpiry: form.insuranceExpiry || undefined,
@@ -378,33 +411,67 @@ function SubcontractorModal({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="label">Primary Contact</label>
-              <input
-                className="input-field"
-                value={form.primaryContact}
-                onChange={(e) => updateField('primaryContact', e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="label">Phone</label>
-              <input
-                className="input-field"
-                value={form.phone}
-                onChange={(e) => updateField('phone', e.target.value)}
-              />
-            </div>
-          </div>
-
+          {/* Contacts */}
           <div>
-            <label className="label">Email</label>
-            <input
-              className="input-field"
-              type="email"
-              value={form.email}
-              onChange={(e) => updateField('email', e.target.value)}
-            />
+            <label className="label">Contacts</label>
+            {form.contacts.map((contact, index) => (
+              <div key={index} className="border border-gray-200 rounded p-3 mb-2 bg-gray-50">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-medium text-gray-500">
+                    Contact {index + 1}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeContact(index)}
+                    className="text-xs text-red-500 hover:text-red-700"
+                  >
+                    Remove
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <input
+                      className="input-field text-sm"
+                      placeholder="Name *"
+                      value={contact.name}
+                      onChange={(e) => updateContact(index, 'name', e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <input
+                      className="input-field text-sm"
+                      placeholder="Role (e.g. Project Manager)"
+                      value={contact.role || ''}
+                      onChange={(e) => updateContact(index, 'role', e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <input
+                      className="input-field text-sm"
+                      type="email"
+                      placeholder="Email"
+                      value={contact.email || ''}
+                      onChange={(e) => updateContact(index, 'email', e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <input
+                      className="input-field text-sm"
+                      placeholder="Phone"
+                      value={contact.phone || ''}
+                      onChange={(e) => updateContact(index, 'phone', e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={addContact}
+              className="text-xs text-primary-600 hover:text-primary-800 font-medium"
+            >
+              + Add Contact
+            </button>
           </div>
 
           {/* Trades */}

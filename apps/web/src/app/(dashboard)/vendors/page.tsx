@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useAuthStore } from '@/stores/auth-store';
-import { vendorsApi, Vendor } from '@/lib/api';
+import { vendorsApi, Vendor, ContactEntry } from '@/lib/api';
 
 const VENDOR_CATEGORIES: Record<string, string> = {
   cameras: 'Cameras',
@@ -148,9 +148,7 @@ export default function VendorsPage() {
               <tr className="bg-gray-50 border-b border-gray-200">
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Vendor Name</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Contact</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Email</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Phone</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Category</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">Categories</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">Actions</th>
               </tr>
@@ -173,14 +171,39 @@ export default function VendorsPage() {
                       )}
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-gray-600">{v.contact || '-'}</td>
-                  <td className="px-4 py-3 text-gray-600">{v.email || '-'}</td>
-                  <td className="px-4 py-3 text-gray-600">{v.phone || '-'}</td>
                   <td className="px-4 py-3">
-                    {v.category ? (
-                      <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${CATEGORY_COLORS[v.category] || 'bg-gray-100 text-gray-600'}`}>
-                        {VENDOR_CATEGORIES[v.category] || v.category}
-                      </span>
+                    {v.contacts && v.contacts.length > 0 ? (
+                      <div>
+                        <span className="text-gray-600">{(v.contacts[0] as ContactEntry).name}</span>
+                        {(v.contacts[0] as ContactEntry).role && (
+                          <span className="block text-[11px] text-gray-400">{(v.contacts[0] as ContactEntry).role}</span>
+                        )}
+                        {(v.contacts[0] as ContactEntry).email && (
+                          <span className="block text-xs text-gray-400">{(v.contacts[0] as ContactEntry).email}</span>
+                        )}
+                        {(v.contacts[0] as ContactEntry).phone && (
+                          <span className="block text-xs text-gray-400">{(v.contacts[0] as ContactEntry).phone}</span>
+                        )}
+                        {v.contacts.length > 1 && (
+                          <span className="text-xs text-primary-500">+{v.contacts.length - 1} more</span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-gray-400">-</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {v.categories && v.categories.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {(v.categories as string[]).slice(0, 3).map((cat) => (
+                          <span key={cat} className={`inline-flex px-1.5 py-0.5 rounded text-[11px] font-medium ${CATEGORY_COLORS[cat] || 'bg-gray-100 text-gray-600'}`}>
+                            {VENDOR_CATEGORIES[cat] || cat}
+                          </span>
+                        ))}
+                        {v.categories.length > 3 && (
+                          <span className="text-xs text-gray-400">+{v.categories.length - 3}</span>
+                        )}
+                      </div>
                     ) : (
                       <span className="text-gray-400">-</span>
                     )}
@@ -252,16 +275,50 @@ function VendorModal({
   const [isLoading, setIsLoading] = useState(false);
   const [form, setForm] = useState({
     name: vendor?.name || '',
-    contact: vendor?.contact || '',
-    email: vendor?.email || '',
-    phone: vendor?.phone || '',
     website: vendor?.website || '',
-    category: vendor?.category || '',
+    categories: (vendor?.categories || []) as string[],
+    contacts: (vendor?.contacts || []) as ContactEntry[],
     notes: vendor?.notes || '',
   });
 
   function updateField(field: string, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  // Category management
+  function addCategory(cat: string) {
+    const trimmed = cat.trim();
+    if (trimmed && !form.categories.includes(trimmed)) {
+      setForm((prev) => ({ ...prev, categories: [...prev.categories, trimmed] }));
+    }
+  }
+
+  function removeCategory(cat: string) {
+    setForm((prev) => ({ ...prev, categories: prev.categories.filter((c) => c !== cat) }));
+  }
+
+  // Contact management
+  function addContact() {
+    setForm((prev) => ({
+      ...prev,
+      contacts: [...prev.contacts, { name: '', email: '', phone: '', role: '' }],
+    }));
+  }
+
+  function updateContact(index: number, field: keyof ContactEntry, value: string) {
+    setForm((prev) => ({
+      ...prev,
+      contacts: prev.contacts.map((c, i) =>
+        i === index ? { ...c, [field]: value } : c,
+      ),
+    }));
+  }
+
+  function removeContact(index: number) {
+    setForm((prev) => ({
+      ...prev,
+      contacts: prev.contacts.filter((_, i) => i !== index),
+    }));
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -273,11 +330,9 @@ function VendorModal({
     try {
       const data = {
         name: form.name,
-        contact: form.contact || undefined,
-        email: form.email || undefined,
-        phone: form.phone || undefined,
         website: form.website || undefined,
-        category: form.category || undefined,
+        categories: form.categories,
+        contacts: form.contacts.filter((c) => c.name.trim()),
         notes: form.notes || undefined,
       };
 
@@ -295,8 +350,8 @@ function VendorModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 bg-black/30">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[80vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-12 bg-black/30">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
           <h2 className="text-lg font-semibold text-gray-900">
             {vendor ? 'Edit Vendor' : 'Add Vendor'}
@@ -307,68 +362,126 @@ function VendorModal({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div>
-            <label className="label">Vendor Name *</label>
-            <input
-              className="input-field"
-              value={form.name}
-              onChange={(e) => updateField('name', e.target.value)}
-              required
-            />
-          </div>
-
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="label">Contact Person</label>
+              <label className="label">Vendor Name *</label>
               <input
                 className="input-field"
-                value={form.contact}
-                onChange={(e) => updateField('contact', e.target.value)}
+                value={form.name}
+                onChange={(e) => updateField('name', e.target.value)}
+                required
               />
             </div>
             <div>
-              <label className="label">Category</label>
-              <select
+              <label className="label">Website</label>
+              <input
                 className="input-field"
-                value={form.category}
-                onChange={(e) => updateField('category', e.target.value)}
-              >
-                <option value="">Select category</option>
-                {Object.entries(VENDOR_CATEGORIES).map(([key, label]) => (
-                  <option key={key} value={key}>{label}</option>
+                value={form.website}
+                onChange={(e) => updateField('website', e.target.value)}
+                placeholder="https://..."
+              />
+            </div>
+          </div>
+
+          {/* Categories — tag picker */}
+          <div>
+            <label className="label">Categories</label>
+            {form.categories.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {form.categories.map((cat) => (
+                  <span
+                    key={cat}
+                    className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${CATEGORY_COLORS[cat] || 'bg-gray-100 text-gray-600'}`}
+                  >
+                    {VENDOR_CATEGORIES[cat] || cat}
+                    <button
+                      type="button"
+                      onClick={() => removeCategory(cat)}
+                      className="ml-1.5 text-current opacity-60 hover:opacity-100"
+                    >
+                      x
+                    </button>
+                  </span>
                 ))}
-              </select>
+              </div>
+            )}
+            <div className="flex flex-wrap gap-1">
+              {Object.entries(VENDOR_CATEGORIES)
+                .filter(([key]) => !form.categories.includes(key))
+                .map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => addCategory(key)}
+                    className="px-2 py-0.5 text-[11px] rounded bg-gray-100 text-gray-600 hover:bg-blue-50 hover:text-blue-600"
+                  >
+                    + {label}
+                  </button>
+                ))}
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="label">Email</label>
-              <input
-                className="input-field"
-                type="email"
-                value={form.email}
-                onChange={(e) => updateField('email', e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="label">Phone</label>
-              <input
-                className="input-field"
-                value={form.phone}
-                onChange={(e) => updateField('phone', e.target.value)}
-              />
-            </div>
-          </div>
-
+          {/* Contacts */}
           <div>
-            <label className="label">Website</label>
-            <input
-              className="input-field"
-              value={form.website}
-              onChange={(e) => updateField('website', e.target.value)}
-              placeholder="https://..."
-            />
+            <label className="label">Contacts</label>
+            {form.contacts.map((contact, index) => (
+              <div key={index} className="border border-gray-200 rounded p-3 mb-2 bg-gray-50">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-medium text-gray-500">
+                    Contact {index + 1}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeContact(index)}
+                    className="text-xs text-red-500 hover:text-red-700"
+                  >
+                    Remove
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <input
+                      className="input-field text-sm"
+                      placeholder="Name *"
+                      value={contact.name}
+                      onChange={(e) => updateContact(index, 'name', e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <input
+                      className="input-field text-sm"
+                      placeholder="Role (e.g. Sales Rep)"
+                      value={contact.role || ''}
+                      onChange={(e) => updateContact(index, 'role', e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <input
+                      className="input-field text-sm"
+                      type="email"
+                      placeholder="Email"
+                      value={contact.email || ''}
+                      onChange={(e) => updateContact(index, 'email', e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <input
+                      className="input-field text-sm"
+                      placeholder="Phone"
+                      value={contact.phone || ''}
+                      onChange={(e) => updateContact(index, 'phone', e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={addContact}
+              className="text-xs text-primary-600 hover:text-primary-800 font-medium"
+            >
+              + Add Contact
+            </button>
           </div>
 
           <div>

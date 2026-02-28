@@ -539,16 +539,16 @@ function VendorWidget({
                   {v.name}
                 </p>
                 <div className="flex items-center gap-2 mt-0.5">
-                  {v.category && (
+                  {Array.isArray(v.categories) && v.categories.length > 0 && (
                     <span className="text-[11px] text-gray-500 capitalize">
-                      {v.category.replace(/_/g, ' ')}
+                      {(v.categories as string[]).map((c: string) => c.replace(/_/g, ' ')).join(', ')}
                     </span>
                   )}
-                  {v.contact && (
+                  {Array.isArray(v.contacts) && v.contacts.length > 0 && (
                     <>
                       <span className="text-gray-300">|</span>
                       <span className="text-[11px] text-gray-400 truncate">
-                        {v.contact}
+                        {(v.contacts[0] as { name?: string }).name}
                       </span>
                     </>
                   )}
@@ -605,9 +605,9 @@ function SubcontractorWidget({
                   {s.companyName}
                 </p>
                 <div className="flex items-center gap-2 mt-0.5">
-                  {s.primaryContact && (
+                  {Array.isArray(s.contacts) && s.contacts.length > 0 && (
                     <span className="text-[11px] text-gray-500 truncate">
-                      {s.primaryContact}
+                      {(s.contacts[0] as { name?: string }).name}
                     </span>
                   )}
                   {Array.isArray(s.trades) && s.trades.length > 0 && (

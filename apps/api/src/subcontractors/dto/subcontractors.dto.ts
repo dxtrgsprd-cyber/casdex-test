@@ -12,17 +12,9 @@ export class CreateSubcontractorDto {
   @IsNotEmpty()
   companyName!: string;
 
-  @IsString()
+  @IsArray()
   @IsOptional()
-  primaryContact?: string;
-
-  @IsString()
-  @IsOptional()
-  email?: string;
-
-  @IsString()
-  @IsOptional()
-  phone?: string;
+  contacts?: Array<{ name: string; email?: string; phone?: string; role?: string }>;
 
   @IsArray()
   @IsOptional()
@@ -50,17 +42,9 @@ export class UpdateSubcontractorDto {
   @IsOptional()
   companyName?: string;
 
-  @IsString()
+  @IsArray()
   @IsOptional()
-  primaryContact?: string;
-
-  @IsString()
-  @IsOptional()
-  email?: string;
-
-  @IsString()
-  @IsOptional()
-  phone?: string;
+  contacts?: Array<{ name: string; email?: string; phone?: string; role?: string }>;
 
   @IsArray()
   @IsOptional()

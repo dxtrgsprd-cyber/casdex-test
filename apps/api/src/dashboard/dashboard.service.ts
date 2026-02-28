@@ -276,16 +276,14 @@ export class DashboardService {
         take: 10,
       }),
 
-      // Vendor summary (top 5 by category)
+      // Vendor summary (top 5)
       this.prisma.vendor.findMany({
         where: { tenantId, isActive: true },
         select: {
           id: true,
           name: true,
-          category: true,
-          contact: true,
-          phone: true,
-          email: true,
+          categories: true,
+          contacts: true,
         },
         orderBy: { name: 'asc' },
         take: 5,
@@ -297,9 +295,7 @@ export class DashboardService {
         select: {
           id: true,
           companyName: true,
-          primaryContact: true,
-          phone: true,
-          email: true,
+          contacts: true,
           trades: true,
           territories: true,
         },

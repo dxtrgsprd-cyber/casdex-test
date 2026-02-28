@@ -19,8 +19,6 @@ export class SubcontractorsService {
     if (query.search) {
       where.OR = [
         { companyName: { contains: query.search, mode: 'insensitive' } },
-        { primaryContact: { contains: query.search, mode: 'insensitive' } },
-        { email: { contains: query.search, mode: 'insensitive' } },
       ];
     }
 
@@ -57,6 +55,20 @@ export class SubcontractorsService {
       });
     }
 
+    // Also search within contacts JSON
+    if (query.search) {
+      const searchLower = query.search.toLowerCase();
+      filtered = filtered.filter((s) => {
+        if (s.companyName.toLowerCase().includes(searchLower)) return true;
+        const contacts = Array.isArray(s.contacts) ? (s.contacts as Array<{ name?: string; email?: string }>) : [];
+        return contacts.some(
+          (c) =>
+            (c.name && c.name.toLowerCase().includes(searchLower)) ||
+            (c.email && c.email.toLowerCase().includes(searchLower)),
+        );
+      });
+    }
+
     return { data: filtered, total: filtered.length };
   }
 
@@ -77,9 +89,7 @@ export class SubcontractorsService {
       data: {
         tenantId,
         companyName: dto.companyName,
-        primaryContact: dto.primaryContact,
-        email: dto.email,
-        phone: dto.phone,
+        contacts: dto.contacts || [],
         trades: dto.trades || [],
         territories: dto.territories || [],
         insuranceExpiry: dto.insuranceExpiry ? new Date(dto.insuranceExpiry) : null,
@@ -100,9 +110,7 @@ export class SubcontractorsService {
 
     const updateData: Record<string, unknown> = {};
     if (dto.companyName !== undefined) updateData.companyName = dto.companyName;
-    if (dto.primaryContact !== undefined) updateData.primaryContact = dto.primaryContact;
-    if (dto.email !== undefined) updateData.email = dto.email;
-    if (dto.phone !== undefined) updateData.phone = dto.phone;
+    if (dto.contacts !== undefined) updateData.contacts = dto.contacts;
     if (dto.trades !== undefined) updateData.trades = dto.trades;
     if (dto.territories !== undefined) updateData.territories = dto.territories;
     if (dto.isActive !== undefined) updateData.isActive = dto.isActive;

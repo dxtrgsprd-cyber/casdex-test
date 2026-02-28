@@ -3,17 +3,8 @@ import {
   IsOptional,
   IsString,
   IsBoolean,
-  IsIn,
+  IsArray,
 } from 'class-validator';
-
-const VENDOR_CATEGORIES = [
-  'cameras',
-  'access_control',
-  'networking',
-  'av',
-  'sensors',
-  'other',
-] as const;
 
 export class CreateVendorDto {
   @IsString()
@@ -22,24 +13,15 @@ export class CreateVendorDto {
 
   @IsString()
   @IsOptional()
-  contact?: string;
-
-  @IsString()
-  @IsOptional()
-  email?: string;
-
-  @IsString()
-  @IsOptional()
-  phone?: string;
-
-  @IsString()
-  @IsOptional()
   website?: string;
 
-  @IsString()
+  @IsArray()
   @IsOptional()
-  @IsIn(VENDOR_CATEGORIES)
-  category?: string;
+  categories?: string[];
+
+  @IsArray()
+  @IsOptional()
+  contacts?: Array<{ name: string; email?: string; phone?: string; role?: string }>;
 
   @IsString()
   @IsOptional()
@@ -53,24 +35,15 @@ export class UpdateVendorDto {
 
   @IsString()
   @IsOptional()
-  contact?: string;
-
-  @IsString()
-  @IsOptional()
-  email?: string;
-
-  @IsString()
-  @IsOptional()
-  phone?: string;
-
-  @IsString()
-  @IsOptional()
   website?: string;
 
-  @IsString()
+  @IsArray()
   @IsOptional()
-  @IsIn(VENDOR_CATEGORIES)
-  category?: string;
+  categories?: string[];
+
+  @IsArray()
+  @IsOptional()
+  contacts?: Array<{ name: string; email?: string; phone?: string; role?: string }>;
 
   @IsBoolean()
   @IsOptional()

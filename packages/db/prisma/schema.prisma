@@ -558,18 +558,16 @@ model RiskAssessment {
 // ============================================================
 
 model Vendor {
-  id        String   @id @default(cuid())
-  tenantId  String
-  name      String
-  contact   String?
-  email     String?
-  phone     String?
-  website   String?
-  category  String?  // 'cameras', 'access_control', 'networking', 'av', 'sensors', 'other'
-  isActive  Boolean  @default(true)
-  notes     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(cuid())
+  tenantId   String
+  name       String
+  website    String?
+  categories Json     @default("[]") // string[] — multi-select categories
+  contacts   Json     @default("[]") // Array<{ name, email?, phone?, role? }>
+  isActive   Boolean  @default(true)
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
@@ -581,9 +579,7 @@ model Subcontractor {
   id              String   @id @default(cuid())
   tenantId        String
   companyName     String
-  primaryContact  String?
-  email           String?
-  phone           String?
+  contacts        Json     @default("[]") // Array<{ name, email?, phone?, role? }>
   trades          Json     @default("[]") // array of trade specialties
   territories     Json     @default("[]") // states/regions they cover
   isActive        Boolean  @default(true)

@@ -413,6 +413,15 @@ export const notificationsApi = {
     fetchApi('/notifications/read-all', { method: 'PUT', token }),
 };
 
+// --- Shared Contact Type ---
+
+export interface ContactEntry {
+  name: string;
+  email?: string;
+  phone?: string;
+  role?: string;
+}
+
 // --- Dashboard ---
 
 export interface CalendarEvent {
@@ -438,18 +447,14 @@ export interface DashboardUnassignedOpp {
 export interface DashboardVendor {
   id: string;
   name: string;
-  category: string | null;
-  contact: string | null;
-  phone: string | null;
-  email: string | null;
+  categories: string[];
+  contacts: ContactEntry[];
 }
 
 export interface DashboardSubcontractor {
   id: string;
   companyName: string;
-  primaryContact: string | null;
-  phone: string | null;
-  email: string | null;
+  contacts: ContactEntry[];
   trades: string[];
   territories: string[];
 }
@@ -555,11 +560,9 @@ export interface Vendor {
   id: string;
   tenantId: string;
   name: string;
-  contact: string | null;
-  email: string | null;
-  phone: string | null;
   website: string | null;
-  category: string | null;
+  categories: string[];
+  contacts: ContactEntry[];
   isActive: boolean;
   notes: string | null;
   createdAt: string;
@@ -578,14 +581,14 @@ export const vendorsApi = {
   get: (token: string, id: string) =>
     fetchApi<{ success: boolean; data: Vendor }>(`/vendors/${id}`, { token }),
 
-  create: (token: string, data: { name: string; contact?: string; email?: string; phone?: string; website?: string; category?: string; notes?: string }) =>
+  create: (token: string, data: { name: string; website?: string; categories?: string[]; contacts?: ContactEntry[]; notes?: string }) =>
     fetchApi<{ success: boolean; data: Vendor }>('/vendors', {
       method: 'POST',
       token,
       body: JSON.stringify(data),
     }),
 
-  update: (token: string, id: string, data: { name?: string; contact?: string; email?: string; phone?: string; website?: string; category?: string; isActive?: boolean; notes?: string }) =>
+  update: (token: string, id: string, data: { name?: string; website?: string; categories?: string[]; contacts?: ContactEntry[]; isActive?: boolean; notes?: string }) =>
     fetchApi<{ success: boolean; data: Vendor }>(`/vendors/${id}`, {
       method: 'PUT',
       token,
@@ -605,9 +608,7 @@ export interface Subcontractor {
   id: string;
   tenantId: string;
   companyName: string;
-  primaryContact: string | null;
-  email: string | null;
-  phone: string | null;
+  contacts: ContactEntry[];
   trades: string[];
   territories: string[];
   isActive: boolean;
@@ -630,14 +631,14 @@ export const subcontractorsApi = {
   get: (token: string, id: string) =>
     fetchApi<{ success: boolean; data: Subcontractor }>(`/subcontractors/${id}`, { token }),
 
-  create: (token: string, data: { companyName: string; primaryContact?: string; email?: string; phone?: string; trades?: string[]; territories?: string[]; insuranceExpiry?: string; licenseNumber?: string; notes?: string }) =>
+  create: (token: string, data: { companyName: string; contacts?: ContactEntry[]; trades?: string[]; territories?: string[]; insuranceExpiry?: string; licenseNumber?: string; notes?: string }) =>
     fetchApi<{ success: boolean; data: Subcontractor }>('/subcontractors', {
       method: 'POST',
       token,
       body: JSON.stringify(data),
     }),
 
-  update: (token: string, id: string, data: { companyName?: string; primaryContact?: string; email?: string; phone?: string; trades?: string[]; territories?: string[]; isActive?: boolean; insuranceExpiry?: string; licenseNumber?: string; notes?: string }) =>
+  update: (token: string, id: string, data: { companyName?: string; contacts?: ContactEntry[]; trades?: string[]; territories?: string[]; isActive?: boolean; insuranceExpiry?: string; licenseNumber?: string; notes?: string }) =>
     fetchApi<{ success: boolean; data: Subcontractor }>(`/subcontractors/${id}`, {
       method: 'PUT',
       token,
