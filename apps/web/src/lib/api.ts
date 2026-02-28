@@ -652,4 +652,72 @@ export const subcontractorsApi = {
     }),
 };
 
+// --- Devices (Global Library) ---
+
+export interface Device {
+  id: string;
+  manufacturer: string;
+  category: string;
+  model: string;
+  partNumber: string;
+  description: string | null;
+  resolution: string | null;
+  formFactor: string | null;
+  indoor: boolean | null;
+  outdoor: boolean | null;
+  vandal: boolean | null;
+  hfov: number | null;
+  maxDistance: number | null;
+  focalLength: string | null;
+  imager: string | null;
+  specs: Record<string, unknown>;
+  mountOptions: string[];
+  msrp: number | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const devicesApi = {
+  list: (token: string, query?: Record<string, string>) => {
+    const params = new URLSearchParams(query || {}).toString();
+    return fetchApi<{ success: boolean; data: Device[]; total: number }>(
+      `/devices${params ? `?${params}` : ''}`,
+      { token },
+    );
+  },
+
+  get: (token: string, id: string) =>
+    fetchApi<{ success: boolean; data: Device }>(`/devices/${id}`, { token }),
+
+  manufacturers: (token: string) =>
+    fetchApi<{ success: boolean; data: string[] }>('/devices/manufacturers', { token }),
+
+  categories: (token: string) =>
+    fetchApi<{ success: boolean; data: string[] }>('/devices/categories', { token }),
+
+  mounts: (token: string, id: string) =>
+    fetchApi<{ success: boolean; data: Device[] }>(`/devices/${id}/mounts`, { token }),
+
+  create: (token: string, data: Partial<Device>) =>
+    fetchApi<{ success: boolean; data: Device }>('/devices', {
+      method: 'POST',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  update: (token: string, id: string, data: Partial<Device>) =>
+    fetchApi<{ success: boolean; data: Device }>(`/devices/${id}`, {
+      method: 'PUT',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  delete: (token: string, id: string) =>
+    fetchApi<{ success: boolean; message: string }>(`/devices/${id}`, {
+      method: 'DELETE',
+      token,
+    }),
+};
+
 export { ApiError };

@@ -8,6 +8,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { VendorsModule } from './vendors/vendors.module';
 import { SubcontractorsModule } from './subcontractors/subcontractors.module';
+import { DevicesModule } from './devices/devices.module';
 import { PrismaModule } from './common/prisma.module';
 import { EmailModule } from './email/email.module';
 
@@ -24,6 +25,7 @@ import { EmailModule } from './email/email.module';
     DashboardModule,
     VendorsModule,
     SubcontractorsModule,
+    DevicesModule,
   ],
 })
 export class AppModule {}

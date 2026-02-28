@@ -13,6 +13,7 @@ const ADMIN_NAV_ITEMS: AdminNavItem[] = [
   { label: 'Dashboard', href: '/admin' },
   { label: 'Organizations', href: '/admin/tenants' },
   { label: 'Users', href: '/admin/users' },
+  { label: 'Device Library', href: '/admin/devices' },
 ];
 
 function CasdexAdminLogo() {
