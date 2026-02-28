@@ -55,6 +55,7 @@ const NEXT_STATUS: Record<string, { label: string; status: string } | null> = {
 const CATEGORY_LABELS: Record<string, string> = {
   camera: 'Camera',
   access_control: 'Access Control',
+  av_intercom: 'Video Intercom (ACS)',
   vape_environmental: 'Vape / Environmental',
   networking: 'Networking',
   av: 'Audio / Video',
@@ -78,7 +79,8 @@ const RISK_COLORS: Record<string, string> = {
 
 type SystemTab = 'cctv' | 'access-control' | 'vape-environmental' | 'network' | 'av' | 'other';
 type ExportTab = 'hardware-schedule' | 'sow';
-type TabType = SystemTab | ExportTab;
+type UtilityTab = 'tools';
+type TabType = SystemTab | ExportTab | UtilityTab;
 
 interface DesignLayer {
   key: SystemTab;
@@ -96,40 +98,40 @@ const DESIGN_LAYERS: DesignLayer[] = [
     key: 'cctv',
     label: 'CCTV',
     shortLabel: 'CCTV',
-    color: 'text-blue-700',
-    bgColor: 'bg-blue-50',
-    borderColor: 'border-blue-300',
-    dotColor: 'bg-blue-500',
+    color: 'text-purple-700',
+    bgColor: 'bg-purple-50',
+    borderColor: 'border-purple-300',
+    dotColor: 'bg-purple-500',
     categories: ['camera'],
   },
   {
     key: 'access-control',
     label: 'Access Control',
     shortLabel: 'ACS',
-    color: 'text-teal-700',
-    bgColor: 'bg-teal-50',
-    borderColor: 'border-teal-300',
-    dotColor: 'bg-teal-500',
-    categories: ['access_control'],
+    color: 'text-amber-700',
+    bgColor: 'bg-amber-50',
+    borderColor: 'border-amber-300',
+    dotColor: 'bg-amber-500',
+    categories: ['access_control', 'av_intercom'],
   },
   {
     key: 'vape-environmental',
     label: 'Vape / Environmental Detectors',
     shortLabel: 'Vape/Env',
-    color: 'text-amber-700',
-    bgColor: 'bg-amber-50',
-    borderColor: 'border-amber-300',
-    dotColor: 'bg-amber-500',
+    color: 'text-teal-700',
+    bgColor: 'bg-teal-50',
+    borderColor: 'border-teal-300',
+    dotColor: 'bg-teal-500',
     categories: ['vape_environmental', 'sensor'],
   },
   {
     key: 'network',
     label: 'Network',
     shortLabel: 'Network',
-    color: 'text-purple-700',
-    bgColor: 'bg-purple-50',
-    borderColor: 'border-purple-300',
-    dotColor: 'bg-purple-500',
+    color: 'text-blue-700',
+    bgColor: 'bg-blue-50',
+    borderColor: 'border-blue-300',
+    dotColor: 'bg-blue-500',
     categories: ['networking'],
   },
   {
@@ -154,19 +156,39 @@ const DESIGN_LAYERS: DesignLayer[] = [
   },
 ];
 
+// Video intercoms belong to Access Control, not AV
+const VIDEO_INTERCOM_KEYWORDS = ['intercom', 'ix-dv', 'ixg-dm', 'td52'];
+
+function isVideoIntercom(pd: PlacedDeviceData): boolean {
+  const model = (pd.device?.model || '').toLowerCase();
+  const desc = (pd.device?.description || '').toLowerCase();
+  return VIDEO_INTERCOM_KEYWORDS.some((kw) => model.includes(kw) || desc.includes(kw));
+}
+
+function getEffectiveCategory(pd: PlacedDeviceData): string {
+  const cat = pd.device?.category || '';
+  // Route video intercoms from AV to access control
+  if (cat === 'av' && isVideoIntercom(pd)) return 'av_intercom';
+  return cat;
+}
+
 function getLayerForCategory(category: string): DesignLayer | undefined {
   return DESIGN_LAYERS.find((l) => l.categories.includes(category));
+}
+
+function getLayerForDevice(pd: PlacedDeviceData): DesignLayer | undefined {
+  return getLayerForCategory(getEffectiveCategory(pd));
 }
 
 function getDevicesForLayer(devices: PlacedDeviceData[], layerKey: SystemTab): PlacedDeviceData[] {
   const layer = DESIGN_LAYERS.find((l) => l.key === layerKey);
   if (!layer) return [];
-  return devices.filter((pd) => layer.categories.includes(pd.device?.category || ''));
+  return devices.filter((pd) => layer.categories.includes(getEffectiveCategory(pd)));
 }
 
 function getVisibleDevices(devices: PlacedDeviceData[], visibleLayers: Set<string>): PlacedDeviceData[] {
   return devices.filter((pd) => {
-    const layer = getLayerForCategory(pd.device?.category || '');
+    const layer = getLayerForDevice(pd);
     return layer ? visibleLayers.has(layer.key) : visibleLayers.has('other');
   });
 }
@@ -701,6 +723,19 @@ export default function DesignDetailPage() {
               {t.label}
             </button>
           ))}
+          {/* Separator */}
+          <div className="border-l border-gray-200 mx-2" />
+          {/* Tools tab */}
+          <button
+            onClick={() => setTab('tools')}
+            className={`pb-3 px-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+              tab === 'tools'
+                ? 'border-primary-500 text-primary-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Tools
+          </button>
         </div>
       </div>
 
@@ -768,6 +803,133 @@ export default function DesignDetailPage() {
       {tab === 'sow' && (
         <SOWTab designId={design.id} />
       )}
+      {tab === 'tools' && (
+        <DesignToolsTab />
+      )}
+    </div>
+  );
+}
+
+// ===== Design Tools Tab =====
+
+const DESIGN_TOOLS = [
+  {
+    title: 'FOV Calculator',
+    description: 'Lens selection, tilt angle, blind spot distance, and forensic quality assessment for camera placement.',
+    href: '/tools/fov-calculator',
+    color: 'border-l-indigo-500',
+    system: 'CCTV',
+  },
+  {
+    title: 'LPR Calculator',
+    description: 'Focal length, shutter speed, capture angle, and frame rate calculations for license plate recognition.',
+    href: '/tools/lpr-calculator',
+    color: 'border-l-red-500',
+    system: 'CCTV',
+  },
+  {
+    title: 'Mounting Calculator',
+    description: 'Generate mount hardware BOM by manufacturer, camera model, location type, and finish color.',
+    href: '/tools/mounting-calculator',
+    color: 'border-l-orange-500',
+    system: 'CCTV',
+  },
+  {
+    title: 'System Calculator',
+    description: 'Storage, bandwidth, and server configuration based on camera count, resolution, FPS, and retention.',
+    href: '/tools/system-calculator',
+    color: 'border-l-green-500',
+    system: 'CCTV',
+  },
+  {
+    title: 'Access Control Door Builder',
+    description: 'Electrical load, wiring schedule, and compliance audit for single or mantrap access control doors.',
+    href: '/tools/access-control-builder',
+    color: 'border-l-emerald-500',
+    system: 'Access Control',
+  },
+  {
+    title: 'Door Compliance Auditor',
+    description: 'ADA, NFPA 101, and state fire marshal compliance checks for access-controlled doors.',
+    href: '/tools/door-compliance',
+    color: 'border-l-rose-500',
+    system: 'Access Control',
+  },
+  {
+    title: 'Mantrap Schematic Designer',
+    description: 'Wiring schedule, power calculation, and interlock schematic for mantrap door systems.',
+    href: '/tools/mantrap-designer',
+    color: 'border-l-violet-500',
+    system: 'Access Control',
+  },
+  {
+    title: 'Compliance Rules Manager',
+    description: 'Upload, export, and verify state jurisdiction fire code compliance rules.',
+    href: '/tools/compliance-rules',
+    color: 'border-l-amber-500',
+    system: 'Access Control',
+  },
+  {
+    title: 'Wireless PtP Calculator',
+    description: 'Capacity audit, rain fade, PoE budget, line-of-sight, and wind load for wireless point-to-point links.',
+    href: '/tools/wireless-ptp',
+    color: 'border-l-teal-500',
+    system: 'Network',
+  },
+  {
+    title: 'Device Library',
+    description: 'Browse and search the full NDAA-compliant device catalog by manufacturer, category, and specifications.',
+    href: '/tools/device-library',
+    color: 'border-l-blue-500',
+    system: 'General',
+  },
+  {
+    title: 'Mount Selector',
+    description: 'Find compatible mounts and accessories for any camera in the device library.',
+    href: '/tools/mount-selector',
+    color: 'border-l-purple-500',
+    system: 'General',
+  },
+];
+
+function DesignToolsTab() {
+  const router = useRouter();
+
+  const grouped = useMemo(() => {
+    const groups: Record<string, typeof DESIGN_TOOLS> = {};
+    for (const tool of DESIGN_TOOLS) {
+      if (!groups[tool.system]) groups[tool.system] = [];
+      groups[tool.system].push(tool);
+    }
+    return groups;
+  }, []);
+
+  return (
+    <div className="space-y-6">
+      <div className="card p-4 bg-gray-50">
+        <p className="text-sm text-gray-600">
+          Quick access to all design and engineering tools. Each tool opens in a new page -- results from these tools
+          inform your design decisions for hardware selection, compliance, and system sizing.
+        </p>
+      </div>
+
+      {Object.entries(grouped).map(([system, tools]) => (
+        <div key={system}>
+          <h3 className="text-sm font-semibold text-gray-800 mb-3">{system}</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {tools.map((tool) => (
+              <button
+                key={tool.href}
+                onClick={() => router.push(tool.href)}
+                className={`card p-4 border-l-4 ${tool.color} hover:shadow-md cursor-pointer transition-all text-left`}
+              >
+                <h4 className="font-medium text-gray-900 text-sm mb-1">{tool.title}</h4>
+                <p className="text-xs text-gray-500">{tool.description}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
