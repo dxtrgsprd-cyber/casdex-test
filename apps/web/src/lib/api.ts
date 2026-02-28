@@ -177,7 +177,7 @@ export const usersApi = {
   get: (token: string, id: string) =>
     fetchApi<{ success: boolean; data: UserDetail }>(`/users/${id}`, { token }),
 
-  create: (token: string, data: { email: string; firstName: string; lastName: string; roleId: string; phone?: string; title?: string; password?: string }) =>
+  create: (token: string, data: { email: string; firstName: string; lastName: string; roleId: string; phone?: string; title?: string; password?: string; tenantId?: string }) =>
     fetchApi<{ success: boolean; data: UserDetail }>('/users', {
       method: 'POST',
       token,

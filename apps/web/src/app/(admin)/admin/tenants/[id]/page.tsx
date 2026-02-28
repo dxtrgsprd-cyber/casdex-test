@@ -1,25 +1,12 @@
 'use client';
 
-import { useEffect, useState, FormEvent } from 'react';
+import { useEffect, useState, useCallback, FormEvent } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth-store';
-import { tenantsApi, usersApi, Tenant } from '@/lib/api';
+import { tenantsApi, usersApi, Tenant, UserListItem } from '@/lib/api';
 
 const TABS = ['General', 'Users', 'Roles'] as const;
 type Tab = (typeof TABS)[number];
-
-interface TenantUserRecord {
-  id: string;
-  email: string;
-  firstName: string;
-  lastName: string;
-  phone: string | null;
-  title: string | null;
-  isActive: boolean;
-  lastLoginAt: string | null;
-  createdAt: string;
-  role: { id: string; name: string; displayName: string };
-}
 
 export default function TenantDetailPage() {
   const params = useParams();
@@ -33,20 +20,12 @@ export default function TenantDetailPage() {
     initialTab === 'users' ? 'Users' : initialTab === 'roles' ? 'Roles' : 'General',
   );
   const [tenant, setTenant] = useState<Tenant | null>(null);
-  const [users, setUsers] = useState<TenantUserRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [usersLoading, setUsersLoading] = useState(false);
 
   useEffect(() => {
     if (!accessToken || !tenantId) return;
     loadTenant();
   }, [accessToken, tenantId]);
-
-  useEffect(() => {
-    if (activeTab === 'Users' && accessToken && tenantId) {
-      loadUsers();
-    }
-  }, [activeTab, accessToken, tenantId]);
 
   async function loadTenant() {
     if (!accessToken) return;
@@ -58,19 +37,6 @@ export default function TenantDetailPage() {
       router.push('/admin/tenants');
     }
     setLoading(false);
-  }
-
-  async function loadUsers() {
-    if (!accessToken) return;
-    setUsersLoading(true);
-    try {
-      const res = await usersApi.listByTenant(accessToken, tenantId, { page: 1, pageSize: 100 });
-      setUsers(res.data as unknown as TenantUserRecord[]);
-    } catch {
-      // Users might not be accessible for this tenant context
-      setUsers([]);
-    }
-    setUsersLoading(false);
   }
 
   if (loading) {
@@ -128,8 +94,7 @@ export default function TenantDetailPage() {
           {activeTab === 'Users' && (
             <UsersTab
               tenant={tenant}
-              users={users}
-              loading={usersLoading}
+              onReload={loadTenant}
             />
           )}
           {activeTab === 'Roles' && (
@@ -285,38 +250,71 @@ function GeneralTab({
 
 function UsersTab({
   tenant,
-  users,
-  loading,
+  onReload,
 }: {
   tenant: Tenant;
-  users: TenantUserRecord[];
-  loading: boolean;
+  onReload: () => void;
 }) {
+  const { accessToken } = useAuthStore();
+  const [users, setUsers] = useState<UserListItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [showAddModal, setShowAddModal] = useState(false);
+
+  const loadUsers = useCallback(async () => {
+    if (!accessToken) return;
+    setLoading(true);
+    setError('');
+    try {
+      const res = await usersApi.listByTenant(accessToken, tenant.id, { page: 1, pageSize: 100 });
+      setUsers(res.data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load users');
+      setUsers([]);
+    }
+    setLoading(false);
+  }, [accessToken, tenant.id]);
+
+  useEffect(() => {
+    loadUsers();
+  }, [loadUsers]);
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-gray-900">Users</h2>
-        <span className="text-sm text-gray-500">
-          {tenant._count?.users || 0} user{(tenant._count?.users || 0) !== 1 ? 's' : ''}
-        </span>
+        <h2 className="text-lg font-semibold text-gray-900">
+          Users <span className="text-sm font-normal text-gray-500">({users.length})</span>
+        </h2>
+        <button
+          className="btn-primary text-sm"
+          onClick={() => setShowAddModal(true)}
+        >
+          Add User
+        </button>
       </div>
 
-      {loading ? (
-        <div className="text-sm text-gray-400">Loading users...</div>
-      ) : users.length > 0 ? (
-        <div className="card overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Name</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Email</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Role</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Last Login</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((user) => (
+      {error && (
+        <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2 mb-4">{error}</div>
+      )}
+
+      <div className="card overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-200">
+              <th className="text-left px-4 py-3 font-medium text-gray-600">Name</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">Email</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">Role</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">Last Login</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={5} className="px-4 py-8 text-center text-sm text-gray-500">Loading...</td></tr>
+            ) : users.length === 0 ? (
+              <tr><td colSpan={5} className="px-4 py-8 text-center text-sm text-gray-500">No users in this organization yet</td></tr>
+            ) : (
+              users.map((user) => (
                 <tr
                   key={user.id}
                   className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
@@ -347,20 +345,183 @@ function UsersTab({
                       : 'Never'}
                   </td>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div className="card p-8 text-center">
-          <p className="text-sm text-gray-500">
-            User management for this organization is available through the regular app.
-          </p>
-          <p className="text-xs text-gray-400 mt-2">
-            Sign in to this organization as an admin to manage its users directly.
-          </p>
-        </div>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {showAddModal && tenant.roles && (
+        <AddUserModal
+          tenantId={tenant.id}
+          roles={tenant.roles}
+          onClose={() => setShowAddModal(false)}
+          onSaved={() => { setShowAddModal(false); loadUsers(); onReload(); }}
+        />
       )}
+    </div>
+  );
+}
+
+// --- Add User Modal ---
+
+function AddUserModal({
+  tenantId,
+  roles,
+  onClose,
+  onSaved,
+}: {
+  tenantId: string;
+  roles: Array<{ id: string; name: string; displayName: string }>;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { accessToken } = useAuthStore();
+  const [form, setForm] = useState({
+    email: '',
+    firstName: '',
+    lastName: '',
+    phone: '',
+    title: '',
+    roleId: roles.length > 0 ? roles.find(r => r.name === 'sales')?.id || roles[0].id : '',
+    password: '',
+  });
+  const [sendInvite, setSendInvite] = useState(true);
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!accessToken) return;
+    setError('');
+    setIsLoading(true);
+    try {
+      await usersApi.create(accessToken, {
+        email: form.email,
+        firstName: form.firstName,
+        lastName: form.lastName,
+        roleId: form.roleId,
+        phone: form.phone || undefined,
+        title: form.title || undefined,
+        password: sendInvite ? undefined : form.password || undefined,
+        tenantId,
+      });
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create user');
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="px-6 py-4 border-b border-gray-200">
+          <h3 className="text-lg font-semibold text-gray-900">Add User</h3>
+        </div>
+        <form onSubmit={handleSubmit} className="px-6 py-4 space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">First Name</label>
+              <input
+                type="text"
+                value={form.firstName}
+                onChange={(e) => setForm({ ...form, firstName: e.target.value })}
+                className="input-field"
+                required
+              />
+            </div>
+            <div>
+              <label className="label">Last Name</label>
+              <input
+                type="text"
+                value={form.lastName}
+                onChange={(e) => setForm({ ...form, lastName: e.target.value })}
+                className="input-field"
+                required
+              />
+            </div>
+          </div>
+          <div>
+            <label className="label">Email</label>
+            <input
+              type="email"
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              className="input-field"
+              required
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Phone</label>
+              <input
+                type="text"
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                className="input-field"
+              />
+            </div>
+            <div>
+              <label className="label">Title</label>
+              <input
+                type="text"
+                value={form.title}
+                onChange={(e) => setForm({ ...form, title: e.target.value })}
+                className="input-field"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="label">Role</label>
+            <select
+              value={form.roleId}
+              onChange={(e) => setForm({ ...form, roleId: e.target.value })}
+              className="input-field"
+              required
+            >
+              {roles.map((r) => (
+                <option key={r.id} value={r.id}>{r.displayName}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={sendInvite}
+                onChange={(e) => setSendInvite(e.target.checked)}
+                className="rounded border-gray-300"
+              />
+              Send invite link (user sets their own password)
+            </label>
+          </div>
+          {!sendInvite && (
+            <div>
+              <label className="label">Password</label>
+              <input
+                type="password"
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                className="input-field"
+                required={!sendInvite}
+                minLength={8}
+              />
+              <p className="text-xs text-gray-400 mt-1">Minimum 8 characters</p>
+            </div>
+          )}
+          {error && (
+            <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">{error}</div>
+          )}
+          <div className="flex justify-end gap-3 pt-2">
+            <button type="button" onClick={onClose} className="btn-secondary text-sm">Cancel</button>
+            <button type="submit" className="btn-primary text-sm" disabled={isLoading}>
+              {isLoading ? 'Adding...' : 'Add User'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

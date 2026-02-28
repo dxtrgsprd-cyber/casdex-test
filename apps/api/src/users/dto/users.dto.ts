@@ -38,6 +38,10 @@ export class CreateUserDto {
   @MinLength(8)
   @IsOptional()
   password?: string; // if not provided, an invite link is sent
+
+  @IsString()
+  @IsOptional()
+  tenantId?: string; // Global admin can specify target tenant
 }
 
 export class UpdateUserDto {
