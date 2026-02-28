@@ -293,7 +293,7 @@ export interface Opportunity {
   designs: Array<{ id: string; name: string; version: number; status: string }>;
   documents: Array<{ id: string; type: string; fileName: string; version: number; isSigned: boolean; createdAt: string }>;
   project: { id: string; projectNumber: string; status: string } | null;
-  riskAssessments: Array<{ id: string; stage: string; overallScore: number; riskLevel: string }>;
+  riskAssessments: Array<{ id: string; stage: string; overallScore: number; riskLevel: string; cctvScore: number | null; acsScore: number | null; equipmentScore: number | null; installScore: number | null }>;
   statusHistory: Array<{ id: string; fromStatus: string | null; toStatus: string; changedBy: string; reason: string | null; createdAt: string }>;
   approvals: Array<{ id: string; type: string; status: string; requestedBy: string; approvedBy: string | null; reason: string | null; createdAt: string }>;
   _count: { surveys: number; designs: number; documents: number };
@@ -673,6 +673,7 @@ export interface Device {
   specs: Record<string, unknown>;
   mountOptions: string[];
   msrp: number | null;
+  ndaaCompliant: boolean;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;

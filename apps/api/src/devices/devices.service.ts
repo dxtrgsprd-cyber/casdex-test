@@ -47,6 +47,12 @@ export class DevicesService {
       where.outdoor = true;
     }
 
+    if (query.ndaaCompliant === 'true') {
+      where.ndaaCompliant = true;
+    } else if (query.ndaaCompliant === 'false') {
+      where.ndaaCompliant = false;
+    }
+
     if (query.status === 'active') {
       where.isActive = true;
     } else if (query.status === 'inactive') {
@@ -104,6 +110,7 @@ export class DevicesService {
         specs: (dto.specs || {}) as Prisma.InputJsonValue,
         mountOptions: (dto.mountOptions || []) as Prisma.InputJsonValue,
         msrp: dto.msrp,
+        ndaaCompliant: dto.ndaaCompliant ?? false,
       },
     });
   }
@@ -144,6 +151,7 @@ export class DevicesService {
     if (dto.specs !== undefined) updateData.specs = dto.specs;
     if (dto.mountOptions !== undefined) updateData.mountOptions = dto.mountOptions;
     if (dto.msrp !== undefined) updateData.msrp = dto.msrp;
+    if (dto.ndaaCompliant !== undefined) updateData.ndaaCompliant = dto.ndaaCompliant;
     if (dto.isActive !== undefined) updateData.isActive = dto.isActive;
 
     return this.prisma.device.update({

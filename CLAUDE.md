@@ -36,6 +36,12 @@ packages/device-library — Manufacturer device data (future)
 5. **User is not a programmer.** Explain everything in plain English.
 6. **No emojis anywhere in the platform UI. Ever. No exceptions.**
 7. **Every DB query must include tenant_id** — enforced by RLS and middleware.
+8. **OPP Number is the primary identifier FOREVER.** Never replaced by project number. Both exist simultaneously.
+9. **No mandatory fields** for Sales, Presales, or PM phases.
+10. **Auto-populated fields are always editable.** Nothing is locked because it was auto-filled.
+11. **BOM = LABOR ONLY.** Never add hardware cost or license cost to BOMs.
+12. **Document naming**: `{OPP Number}_{Document Type}_{Customer}_{Job Name}_{Version}`
+13. **All cameras/equipment must be NDAA compliant.** Add logic to check and warn about compliance.
 
 ## Commands
 

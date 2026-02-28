@@ -158,6 +158,11 @@ export default function DeviceLibraryPage() {
                   <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${CATEGORY_COLORS[device.category] || 'bg-gray-100 text-gray-600'}`}>
                     {CATEGORY_LABELS[device.category] || device.category}
                   </span>
+                  {device.ndaaCompliant && (
+                    <span className="inline-flex px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">
+                      NDAA
+                    </span>
+                  )}
                   {device.resolution && (
                     <span className="text-xs text-gray-500">{device.resolution}</span>
                   )}
@@ -208,6 +213,16 @@ export default function DeviceLibraryPage() {
                         <p className="text-gray-700 mt-0.5">{device.imager}</p>
                       </div>
                     )}
+                    <div>
+                      <span className="text-gray-400 text-xs uppercase tracking-wide">NDAA Compliance</span>
+                      <p className="mt-0.5">
+                        {device.ndaaCompliant ? (
+                          <span className="text-green-700 font-medium text-xs">SEC. 889 Compliant</span>
+                        ) : (
+                          <span className="text-red-600 font-medium text-xs">Non-Compliant</span>
+                        )}
+                      </p>
+                    </div>
                     <div>
                       <span className="text-gray-400 text-xs uppercase tracking-wide">Environment</span>
                       <p className="text-gray-700 mt-0.5">

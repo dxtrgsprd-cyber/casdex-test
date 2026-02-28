@@ -148,7 +148,11 @@ export class OpportunitiesService {
           select: { id: true, projectNumber: true, status: true, startDate: true, estimatedEndDate: true },
         },
         riskAssessments: {
-          select: { id: true, stage: true, overallScore: true, riskLevel: true, createdAt: true },
+          select: {
+            id: true, stage: true, overallScore: true, riskLevel: true,
+            cctvScore: true, acsScore: true, equipmentScore: true, installScore: true,
+            createdAt: true,
+          },
           orderBy: { createdAt: 'desc' },
         },
         statusHistory: {
@@ -174,8 +178,8 @@ export class OpportunitiesService {
   // --- Create OPP ---
 
   async create(tenantId: string, userId: string, dto: CreateOpportunityDto) {
-    // Generate OPP number: OPP-XXXXXX (sequential per tenant)
-    const oppNumber = await this.generateOppNumber(tenantId);
+    // Use provided OPP number or auto-generate
+    const oppNumber = dto.oppNumber?.trim() || await this.generateOppNumber(tenantId);
 
     const opp = await this.prisma.opportunity.create({
       data: {
@@ -225,6 +229,7 @@ export class OpportunitiesService {
     await this.prisma.opportunity.update({
       where: { id: opp.id },
       data: {
+        oppNumber: dto.oppNumber,
         customerName: dto.customerName,
         customerContact: dto.customerContact,
         customerEmail: dto.customerEmail,

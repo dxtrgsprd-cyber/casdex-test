@@ -78,6 +78,10 @@ export class CreateDeviceDto {
   @IsOptional()
   @Type(() => Number)
   msrp?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  ndaaCompliant?: boolean;
 }
 
 export class UpdateDeviceDto {
@@ -153,6 +157,10 @@ export class UpdateDeviceDto {
 
   @IsBoolean()
   @IsOptional()
+  ndaaCompliant?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
   isActive?: boolean;
 }
 
@@ -188,4 +196,8 @@ export class ListDevicesQueryDto {
   @IsString()
   @IsOptional()
   status?: string; // 'active' | 'inactive'
+
+  @IsString()
+  @IsOptional()
+  ndaaCompliant?: string; // 'true' | 'false'
 }

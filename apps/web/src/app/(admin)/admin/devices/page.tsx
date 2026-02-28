@@ -45,6 +45,7 @@ const EMPTY_FORM: Partial<Device> = {
   imager: '',
   mountOptions: [],
   msrp: null,
+  ndaaCompliant: false,
 };
 
 export default function AdminDevicesPage() {
@@ -129,6 +130,7 @@ export default function AdminDevicesPage() {
       imager: device.imager || '',
       mountOptions: device.mountOptions || [],
       msrp: device.msrp,
+      ndaaCompliant: device.ndaaCompliant ?? false,
     });
     setMountOptionsText(
       Array.isArray(device.mountOptions) ? device.mountOptions.join(', ') : ''
@@ -270,6 +272,7 @@ export default function AdminDevicesPage() {
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Category</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Form Factor</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Resolution</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">NDAA</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">Actions</th>
               </tr>
@@ -290,6 +293,17 @@ export default function AdminDevicesPage() {
                   </td>
                   <td className="px-4 py-3 text-gray-500 capitalize">{device.formFactor || '-'}</td>
                   <td className="px-4 py-3 text-gray-500">{device.resolution || '-'}</td>
+                  <td className="px-4 py-3">
+                    {device.ndaaCompliant ? (
+                      <span className="inline-flex px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">
+                        Compliant
+                      </span>
+                    ) : (
+                      <span className="inline-flex px-2 py-0.5 rounded text-xs font-medium bg-red-50 text-red-600">
+                        Non-Compliant
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-3">
                     <span
                       className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${
@@ -533,6 +547,15 @@ export default function AdminDevicesPage() {
                     className="rounded border-gray-300"
                   />
                   Vandal Resistant
+                </label>
+                <label className="flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={form.ndaaCompliant || false}
+                    onChange={(e) => setForm({ ...form, ndaaCompliant: e.target.checked })}
+                    className="rounded border-gray-300"
+                  />
+                  NDAA Compliant
                 </label>
               </div>
             </div>

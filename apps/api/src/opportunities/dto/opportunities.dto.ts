@@ -11,6 +11,10 @@ import { Type } from 'class-transformer';
 // --- Create OPP ---
 export class CreateOpportunityDto {
   @IsString()
+  @IsOptional()
+  oppNumber?: string;
+
+  @IsString()
   @IsNotEmpty()
   customerName!: string;
 
@@ -81,6 +85,10 @@ export class TeamMemberDto {
 
 // --- Update OPP ---
 export class UpdateOpportunityDto {
+  @IsString()
+  @IsOptional()
+  oppNumber?: string;
+
   @IsString()
   @IsOptional()
   customerName?: string;

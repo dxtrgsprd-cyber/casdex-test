@@ -182,6 +182,7 @@ function OverviewTab({ opp, onUpdate }: { opp: Opportunity; onUpdate: () => void
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
+    oppNumber: opp.oppNumber,
     customerName: opp.customerName,
     customerContact: opp.customerContact || '',
     customerEmail: opp.customerEmail || '',
@@ -236,6 +237,7 @@ function OverviewTab({ opp, onUpdate }: { opp: Opportunity; onUpdate: () => void
           </div>
 
           <div className="grid grid-cols-2 gap-4">
+            <Field label="OPP Number" value={form.oppNumber} editing={editing} onChange={(v) => updateField('oppNumber', v)} />
             <Field label="Customer" value={form.customerName} editing={editing} onChange={(v) => updateField('customerName', v)} />
             <Field label="Project Name" value={form.projectName} editing={editing} onChange={(v) => updateField('projectName', v)} />
             <Field label="Contact" value={form.customerContact} editing={editing} onChange={(v) => updateField('customerContact', v)} />

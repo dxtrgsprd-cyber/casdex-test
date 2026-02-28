@@ -208,6 +208,7 @@ function CreateOppModal({
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [form, setForm] = useState({
+    oppNumber: '',
     customerName: '',
     projectName: '',
     customerContact: '',
@@ -253,6 +254,16 @@ function CreateOppModal({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="label">OPP Number (optional, auto-generated if blank)</label>
+            <input
+              className="input-field"
+              placeholder="e.g. OPP-000001"
+              value={form.oppNumber}
+              onChange={(e) => updateField('oppNumber', e.target.value)}
+            />
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2 sm:col-span-1">
               <label className="label">Customer Name *</label>
