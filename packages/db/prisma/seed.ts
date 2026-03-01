@@ -198,6 +198,20 @@ async function main() {
   });
 
   console.log(`Created backup admin user: ${backupUser.email}`);
+
+  // Assign backup admin to default tenant
+  if (orgAdminRole) {
+    await prisma.userTenant.upsert({
+      where: { userId_tenantId: { userId: backupUser.id, tenantId: defaultTenant.id } },
+      update: {},
+      create: {
+        userId: backupUser.id,
+        tenantId: defaultTenant.id,
+        roleId: orgAdminRole.id,
+      },
+    });
+  }
+
   console.log('Seed complete.');
 }
 

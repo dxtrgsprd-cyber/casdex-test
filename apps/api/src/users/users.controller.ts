@@ -10,6 +10,7 @@ import {
   UseGuards,
   ParseIntPipe,
   DefaultValuePipe,
+  ForbiddenException,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { CreateUserDto, UpdateUserDto, UpdateUserRoleDto, UpdateProfileDto, ListUsersByTenantDto } from './dto/users.dto';
@@ -49,7 +50,12 @@ export class UsersController {
   async listUsersByTenant(
     @Param('tenantId') tenantId: string,
     @Body() dto: ListUsersByTenantDto,
+    @CurrentUser() user: RequestUser,
   ) {
+    // org_admin can only view users within their own tenant
+    if (!isGlobalAdmin(user) && user.globalRole !== 'global_manager' && tenantId !== user.tenantId) {
+      throw new ForbiddenException('You can only view users in your own organization');
+    }
     const result = await this.usersService.listUsersByTenant(tenantId, dto.page ?? 1, dto.pageSize ?? 25, {
       search: dto.search,
       roleId: dto.roleId,

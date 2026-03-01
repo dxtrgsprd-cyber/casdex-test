@@ -38,6 +38,13 @@ async function fetchApi<T>(endpoint: string, options: FetchOptions = {}): Promis
   }
 
   if (!response.ok) {
+    // If token is expired/invalid, clear auth state and redirect to login
+    if (response.status === 401 && token) {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('casdex_auth');
+        window.location.href = '/login';
+      }
+    }
     const body = await response.json().catch(() => ({ message: 'Request failed' }));
     throw new ApiError(response.status, body.message || `Request failed with status ${response.status}`);
   }

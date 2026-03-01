@@ -332,7 +332,7 @@ export class AuthService {
       },
     });
 
-    this.emailService.sendPasswordReset(email, token);
+    await this.emailService.sendPasswordReset(email, token);
   }
 
   async changePassword(userId: string, currentPassword: string, newPassword: string): Promise<void> {

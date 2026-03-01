@@ -111,31 +111,31 @@ export class DashboardService {
         } as never,
       }),
 
-      // OPPs won this month (has PN)
+      // OPPs won this month
       this.prisma.opportunity.count({
         where: {
           tenantId,
-          projectNumber: { not: null },
+          status: 'closed_won',
           closedAt: { gte: startOfMonth },
           ...userFilter,
         } as never,
       }),
 
-      // OPPs won this year (has PN)
+      // OPPs won this year
       this.prisma.opportunity.count({
         where: {
           tenantId,
-          projectNumber: { not: null },
+          status: 'closed_won',
           closedAt: { gte: startOfYear },
           ...userFilter,
         } as never,
       }),
 
-      // OPPs won total (has PN)
+      // OPPs won total
       this.prisma.opportunity.count({
         where: {
           tenantId,
-          projectNumber: { not: null },
+          status: 'closed_won',
           ...userFilter,
         } as never,
       }),

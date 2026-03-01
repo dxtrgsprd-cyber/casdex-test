@@ -334,7 +334,15 @@ export class OpportunitiesService {
   }
 
   async removeTeamMember(id: string, tenantId: string, memberId: string) {
-    await this.findOrFail(id, tenantId);
+    const opp = await this.findOrFail(id, tenantId);
+
+    // Verify the team member belongs to this opportunity
+    const member = await this.prisma.oppTeamMember.findFirst({
+      where: { id: memberId, oppId: opp.id },
+    });
+    if (!member) {
+      throw new NotFoundException('Team member not found on this opportunity');
+    }
 
     await this.prisma.oppTeamMember.delete({
       where: { id: memberId },
@@ -717,7 +725,7 @@ export class OpportunitiesService {
   }
 
   private async notifyApprovalRequest(
-    opp: { id: string; oppNumber: string; projectName: string },
+    opp: { id: string; oppNumber: string; projectName: string; tenantId: string },
     type: string,
     requestedById: string,
   ) {
@@ -744,7 +752,7 @@ export class OpportunitiesService {
       // This goes to managers — but they're not team members, so query by role
       const managers = await this.prisma.userTenant.findMany({
         where: {
-          tenantId: (opp as { id: string; oppNumber: string; projectName: string } & Record<string, unknown>)['tenantId'] as string || '',
+          tenantId: opp.tenantId,
           role: { name: 'org_manager' },
           isActive: true,
         },

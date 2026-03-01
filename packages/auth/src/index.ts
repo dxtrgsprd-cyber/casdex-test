@@ -1,5 +1,5 @@
 export { hash, compare } from 'bcryptjs';
-export { sign, verify, type JwtPayload } from 'jsonwebtoken';
+export { sign, verify } from 'jsonwebtoken';
 
 // Password hashing rounds
 export const HASH_ROUNDS = 12;
