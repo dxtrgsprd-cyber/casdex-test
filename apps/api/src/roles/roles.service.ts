@@ -17,6 +17,8 @@ const SYSTEM_ROLE_NAMES = [
   'installer',
   'subcontractor',
   'customer',
+  'lead',
+  'tech',
 ];
 
 @Injectable()
@@ -142,6 +144,67 @@ export class RolesService {
     });
 
     return this.getRole(roleId, tenantId);
+  }
+
+  async duplicateRole(
+    sourceRoleId: string,
+    tenantId: string,
+    dto: { name: string; displayName: string; permissions?: Array<{ module: string; action: string; allowed: boolean }> },
+  ) {
+    const sourceRole = await this.prisma.role.findFirst({
+      where: { id: sourceRoleId, tenantId },
+      include: { permissions: true },
+    });
+
+    if (!sourceRole) {
+      throw new NotFoundException('Source role not found');
+    }
+
+    if (SYSTEM_ROLE_NAMES.includes(dto.name)) {
+      throw new ConflictException('Cannot create a custom role with a system role name');
+    }
+
+    const existing = await this.prisma.role.findUnique({
+      where: { tenantId_name: { tenantId, name: dto.name } },
+    });
+
+    if (existing) {
+      throw new ConflictException('A role with this name already exists');
+    }
+
+    // Use provided permissions, or copy from source role
+    const permissionsToUse = dto.permissions || sourceRole.permissions.map((p) => ({
+      module: p.module,
+      action: p.action,
+      allowed: p.allowed,
+    }));
+
+    const role = await this.prisma.$transaction(async (tx) => {
+      const newRole = await tx.role.create({
+        data: {
+          tenantId,
+          name: dto.name,
+          displayName: dto.displayName,
+          isCustom: true,
+          isDefault: false,
+        },
+      });
+
+      if (permissionsToUse.length > 0) {
+        await tx.rolePermission.createMany({
+          data: permissionsToUse.map((p) => ({
+            roleId: newRole.id,
+            module: p.module,
+            action: p.action,
+            allowed: p.allowed,
+          })),
+        });
+      }
+
+      return newRole;
+    });
+
+    return this.getRole(role.id, tenantId);
   }
 
   async deleteRole(roleId: string, tenantId: string) {

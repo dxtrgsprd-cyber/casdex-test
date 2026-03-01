@@ -257,6 +257,13 @@ export const rolesApi = {
       body: JSON.stringify(data),
     }),
 
+  duplicate: (token: string, id: string, data: { name: string; displayName: string; permissions?: Array<{ module: string; action: string; allowed: boolean }> }) =>
+    fetchApi<{ success: boolean; data: Role }>(`/roles/${id}/duplicate`, {
+      method: 'POST',
+      token,
+      body: JSON.stringify(data),
+    }),
+
   delete: (token: string, id: string) =>
     fetchApi<{ success: boolean; message: string }>(`/roles/${id}`, { method: 'DELETE', token }),
 };

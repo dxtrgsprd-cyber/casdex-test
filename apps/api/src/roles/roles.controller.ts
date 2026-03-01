@@ -9,7 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { RolesService } from './roles.service';
-import { CreateRoleDto, UpdateRoleDto } from './dto/roles.dto';
+import { CreateRoleDto, UpdateRoleDto, DuplicateRoleDto } from './dto/roles.dto';
 import { CurrentUser, RequestUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -58,6 +58,18 @@ export class RolesController {
     @CurrentUser() user: RequestUser,
   ) {
     const role = await this.rolesService.updateRole(id, user.tenantId, dto);
+    return { success: true, data: role };
+  }
+
+  @Post(':id/duplicate')
+  @Roles('org_admin', 'org_manager')
+  @RequirePermissions({ module: 'management', action: 'create' })
+  async duplicateRole(
+    @Param('id') id: string,
+    @Body() dto: DuplicateRoleDto,
+    @CurrentUser() user: RequestUser,
+  ) {
+    const role = await this.rolesService.duplicateRole(id, user.tenantId, dto);
     return { success: true, data: role };
   }
 
