@@ -5,6 +5,7 @@ import {
   IsBoolean,
   IsNumber,
   IsArray,
+  ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -208,5 +209,7 @@ export class ListDevicesQueryDto {
 
 export class BulkImportDevicesDto {
   @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateDeviceDto)
   items!: CreateDeviceDto[];
 }

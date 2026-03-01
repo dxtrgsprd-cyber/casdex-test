@@ -9,20 +9,9 @@ import { compare, hash } from 'bcryptjs';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../common/prisma.service';
 import { EmailService } from '../email/email.service';
-import { APP_MODULES, parseTenantSettings } from '@casdex/shared';
+import { APP_MODULES, parseTenantSettings, JwtPayload, AuthTokens } from '@casdex/shared';
 
-interface TokenPayload {
-  sub: string;
-  email: string;
-  tenantId: string;
-  roles: string[];
-  globalRole: string | null;
-}
-
-export interface AuthTokens {
-  accessToken: string;
-  refreshToken: string;
-}
+type TokenPayload = Omit<JwtPayload, 'iat' | 'exp'>;
 
 export interface LoginResult extends AuthTokens {
   user: {
