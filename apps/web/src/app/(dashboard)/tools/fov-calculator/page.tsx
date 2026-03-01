@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import { useCalcDevices } from '@/hooks/useCalcDevices';
+import { useCalcReference } from '@/hooks/useCalcReference';
 
 // ============================================================
 // NDAA FOV Engine — Camera Sensor Database
@@ -12,31 +14,6 @@ interface SensorSpec {
   sW: number; // sensor width mm
   sH: number; // sensor height mm
 }
-
-const FOV_DB: Record<string, Record<string, SensorSpec>> = {
-  Hanwha: {
-    'PNM-C12083RVD': { resW: 3328, resH: 1872, sW: 5.1, sH: 2.9 },
-    'XND-8082RV':    { resW: 3072, resH: 1728, sW: 5.1, sH: 2.9 },
-    'XNO-9083R':     { resW: 3840, resH: 2160, sW: 5.8, sH: 3.2 },
-    'XND-6083RV':    { resW: 2048, resH: 1536, sW: 4.8, sH: 3.6 },
-    'XNV-8082R':     { resW: 3072, resH: 1728, sW: 5.1, sH: 2.9 },
-    'PNM-9322VQP':   { resW: 2560, resH: 1440, sW: 5.1, sH: 2.9 },
-  },
-  Axis: {
-    'P3268-LVE':  { resW: 3840, resH: 2160, sW: 5.8, sH: 3.2 },
-    'Q1656':      { resW: 2688, resH: 1512, sW: 5.3, sH: 3.0 },
-    'M3116-LVE':  { resW: 2688, resH: 1512, sW: 5.3, sH: 3.0 },
-    'P3265-LVE':  { resW: 1920, resH: 1080, sW: 4.8, sH: 2.7 },
-    'Q6135-LE':   { resW: 1920, resH: 1080, sW: 4.8, sH: 2.7 },
-  },
-};
-
-const PPF_PRESETS = [
-  { value: 76, label: 'Identification (76 PPF)', desc: 'Face capture, forensic detail' },
-  { value: 38, label: 'Recognition (38 PPF)', desc: 'Identify known individuals' },
-  { value: 19, label: 'Observation (19 PPF)', desc: 'See activity and body movement' },
-  { value: 10, label: 'Detection (10 PPF)', desc: 'Detect presence / motion only' },
-];
 
 // ============================================================
 // Calculation Engine
@@ -61,6 +38,7 @@ function calculateFov(
   heightFt: number,
   distanceFt: number,
   targetPpf: number,
+  ppfPresets: { value: number; label: string; desc: string }[] = [],
 ): FovResult {
   const slopeDistance = Math.sqrt(heightFt * heightFt + distanceFt * distanceFt);
   const requiredWidthFt = sensor.resW / targetPpf;
@@ -82,7 +60,7 @@ function calculateFov(
     ? 'Face Capture — Angle allows forensic identification'
     : 'Steep Angle — Reduced facial detail, top-down perspective';
 
-  const ppfPreset = PPF_PRESETS.find((p) => p.value === targetPpf);
+  const ppfPreset = ppfPresets.find((p) => p.value === targetPpf);
   const ppfLabel = ppfPreset ? ppfPreset.label : `${targetPpf} PPF`;
 
   return {
@@ -105,9 +83,23 @@ function calculateFov(
 // ============================================================
 
 export default function FovCalculatorPage() {
-  const manufacturers = Object.keys(FOV_DB);
+  const { grouped: fovDb, loading: devicesLoading } = useCalcDevices('fov');
+  const { data: ppfData, loading: ppfLoading } = useCalcReference('ppf_preset');
+
+  const ppfPresets = ppfData.map(d => ({ value: (d.data as any).value as number, label: d.label, desc: (d.data as any).desc as string }));
+
+  const fovDbCompat: Record<string, Record<string, { resW: number; resH: number; sW: number; sH: number }>> = {};
+  for (const [mfg, devices] of Object.entries(fovDb)) {
+    fovDbCompat[mfg] = {};
+    for (const d of devices) {
+      const s = d.specs as any;
+      fovDbCompat[mfg][d.model] = { resW: s.resW, resH: s.resH, sW: s.sensorW, sH: s.sensorH };
+    }
+  }
+
+  const manufacturers = Object.keys(fovDbCompat);
   const [manufacturer, setManufacturer] = useState(manufacturers[0]);
-  const models = Object.keys(FOV_DB[manufacturer] || {});
+  const models = Object.keys(fovDbCompat[manufacturer] || {});
   const [model, setModel] = useState(models[0] || '');
   const [heightFt, setHeightFt] = useState('15');
   const [distanceFt, setDistanceFt] = useState('45');
@@ -115,18 +107,26 @@ export default function FovCalculatorPage() {
 
   function handleManufacturerChange(mfr: string) {
     setManufacturer(mfr);
-    const newModels = Object.keys(FOV_DB[mfr] || {});
+    const newModels = Object.keys(fovDbCompat[mfr] || {});
     setModel(newModels[0] || '');
   }
 
-  const sensor = FOV_DB[manufacturer]?.[model];
+  if (devicesLoading || ppfLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <p className="text-sm text-gray-500">Loading calculator data...</p>
+      </div>
+    );
+  }
+
+  const sensor = fovDbCompat[manufacturer]?.[model];
   const height = parseFloat(heightFt) || 0;
   const distance = parseFloat(distanceFt) || 0;
 
   const result = useMemo(() => {
     if (!sensor || height <= 0 || distance <= 0) return null;
-    return calculateFov(sensor, height, distance, targetPpf);
-  }, [sensor, height, distance, targetPpf]);
+    return calculateFov(sensor, height, distance, targetPpf, ppfPresets);
+  }, [sensor, height, distance, targetPpf, ppfPresets]);
 
   return (
     <div>
@@ -200,7 +200,7 @@ export default function FovCalculatorPage() {
               value={targetPpf}
               onChange={(e) => setTargetPpf(Number(e.target.value))}
             >
-              {PPF_PRESETS.map((p) => (
+              {ppfPresets.map((p) => (
                 <option key={p.value} value={p.value}>{p.label}</option>
               ))}
             </select>
@@ -234,7 +234,7 @@ export default function FovCalculatorPage() {
             <ResultCard
               label="PPF Goal"
               value={`${targetPpf} PPF`}
-              sub={PPF_PRESETS.find((p) => p.value === targetPpf)?.desc || ''}
+              sub={ppfPresets.find((p) => p.value === targetPpf)?.desc || ''}
             />
             <ResultCard
               label="Installer Tilt"
@@ -307,8 +307,8 @@ export default function FovCalculatorPage() {
                 </tr>
               </thead>
               <tbody>
-                {PPF_PRESETS.map((preset) => {
-                  const ppfResult = calculateFov(sensor, height, distance, preset.value);
+                {ppfPresets.map((preset) => {
+                  const ppfResult = calculateFov(sensor, height, distance, preset.value, ppfPresets);
                   const isSelected = preset.value === targetPpf;
                   return (
                     <tr

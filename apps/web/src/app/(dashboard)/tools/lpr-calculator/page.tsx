@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import { useCalcDevices } from '@/hooks/useCalcDevices';
+import { useCalcReference } from '@/hooks/useCalcReference';
 
 // ============================================================
 // NDAA LPR Engine — Sensor Database
@@ -11,24 +13,6 @@ interface LprSensor {
   sensorH: number; // mm
   fpsMax: number;
 }
-
-const LPR_DB: Record<string, Record<string, LprSensor>> = {
-  Hanwha: {
-    'TNO-LPL050': { resH: 1080, sensorH: 2.7, fpsMax: 60 },
-    'XNO-9083R':  { resH: 2160, sensorH: 3.2, fpsMax: 30 },
-    'XNO-6083R':  { resH: 1536, sensorH: 3.6, fpsMax: 30 },
-    'XNB-9003':   { resH: 2160, sensorH: 3.2, fpsMax: 30 },
-  },
-  Axis: {
-    'Q1715':     { resH: 1080, sensorH: 2.7, fpsMax: 60 },
-    'P1468-LE':  { resH: 2160, sensorH: 3.2, fpsMax: 30 },
-    'P1455-LE':  { resH: 1080, sensorH: 2.7, fpsMax: 30 },
-    'Q1786-LE':  { resH: 2160, sensorH: 3.2, fpsMax: 30 },
-  },
-};
-
-const SHUTTER_STEPS = [250, 500, 1000, 1600, 2000, 4000];
-const LPR_PPF = 32; // pixels per foot standard for LPR
 
 // ============================================================
 // Calculation Engine
@@ -52,26 +36,28 @@ function calculateLpr(
   heightFt: number,
   distanceFt: number,
   speedMph: number,
+  shutterSteps: number[],
+  lprPpf: number,
 ): LprResult {
   // 1. Slope distance
   const slopeDistance = Math.sqrt(heightFt * heightFt + distanceFt * distanceFt);
 
   // 2. Required focal length for 32 PPF plate height
-  const plateWidthFt = sensor.resH / LPR_PPF;
+  const plateWidthFt = sensor.resH / lprPpf;
   const requiredFocalLength = (sensor.sensorH * slopeDistance) / plateWidthFt;
 
   // 3. Shutter speed: 1/(speed*20), snap to nearest step
   const rawShutter = speedMph * 20;
-  let shutterSpeed = SHUTTER_STEPS[0];
-  for (const step of SHUTTER_STEPS) {
+  let shutterSpeed = shutterSteps[0];
+  for (const step of shutterSteps) {
     if (step >= rawShutter) {
       shutterSpeed = step;
       break;
     }
     shutterSpeed = step;
   }
-  if (rawShutter > SHUTTER_STEPS[SHUTTER_STEPS.length - 1]) {
-    shutterSpeed = SHUTTER_STEPS[SHUTTER_STEPS.length - 1];
+  if (rawShutter > shutterSteps[shutterSteps.length - 1]) {
+    shutterSpeed = shutterSteps[shutterSteps.length - 1];
   }
   const shutterFraction = `1/${shutterSpeed}s`;
 
@@ -84,11 +70,11 @@ function calculateLpr(
   const fpsWarning = recommendedFps > sensor.fpsMax;
 
   // 6. Optical target
-  const coverageFt = sensor.resH / LPR_PPF;
+  const coverageFt = sensor.resH / lprPpf;
   const opticalTarget = coverageFt < 16 ? 'Single Lane' : 'Multi-Lane';
 
   // Plate height in pixels (standard US plate ~1ft tall)
-  const plateHeightPx = LPR_PPF;
+  const plateHeightPx = lprPpf;
 
   return {
     slopeDistance,
@@ -109,9 +95,25 @@ function calculateLpr(
 // ============================================================
 
 export default function LprCalculatorPage() {
-  const manufacturers = Object.keys(LPR_DB);
+  const { grouped: lprDb, loading: devicesLoading } = useCalcDevices('lpr');
+  const { data: shutterData, loading: shutterLoading } = useCalcReference('shutter_step');
+  const { data: lprStdData } = useCalcReference('lpr_standard');
+
+  // Build compatible data structures from API data
+  const lprDbCompat: Record<string, Record<string, { resH: number; sensorH: number; fpsMax: number }>> = {};
+  for (const [mfg, devices] of Object.entries(lprDb)) {
+    lprDbCompat[mfg] = {};
+    for (const d of devices) {
+      const s = d.specs as any;
+      lprDbCompat[mfg][d.model] = { resH: s.resH, sensorH: s.sensorH, fpsMax: s.fpsMax };
+    }
+  }
+  const shutterSteps = shutterData.map(d => (d.data as any).value as number);
+  const lprPpf = lprStdData.length > 0 ? ((lprStdData[0].data as any).value as number) : 32;
+
+  const manufacturers = Object.keys(lprDbCompat);
   const [manufacturer, setManufacturer] = useState(manufacturers[0]);
-  const models = Object.keys(LPR_DB[manufacturer] || {});
+  const models = Object.keys(lprDbCompat[manufacturer] || {});
   const [model, setModel] = useState(models[0] || '');
   const [heightFt, setHeightFt] = useState('12');
   const [distanceFt, setDistanceFt] = useState('70');
@@ -119,19 +121,27 @@ export default function LprCalculatorPage() {
 
   function handleManufacturerChange(mfr: string) {
     setManufacturer(mfr);
-    const newModels = Object.keys(LPR_DB[mfr] || {});
+    const newModels = Object.keys(lprDbCompat[mfr] || {});
     setModel(newModels[0] || '');
   }
 
-  const sensor = LPR_DB[manufacturer]?.[model];
+  const sensor = lprDbCompat[manufacturer]?.[model];
   const height = parseFloat(heightFt) || 0;
   const distance = parseFloat(distanceFt) || 0;
   const speed = parseFloat(speedMph) || 0;
 
   const result = useMemo(() => {
-    if (!sensor || height <= 0 || distance <= 0 || speed <= 0) return null;
-    return calculateLpr(sensor, height, distance, speed);
-  }, [sensor, height, distance, speed]);
+    if (!sensor || height <= 0 || distance <= 0 || speed <= 0 || shutterSteps.length === 0) return null;
+    return calculateLpr(sensor, height, distance, speed, shutterSteps, lprPpf);
+  }, [sensor, height, distance, speed, shutterSteps, lprPpf]);
+
+  if (devicesLoading || shutterLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <p className="text-sm text-gray-500">Loading LPR calculator data...</p>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -258,7 +268,7 @@ export default function LprCalculatorPage() {
             <ResultCard
               label="Optical Coverage"
               value={result.opticalTarget}
-              sub={`${(sensor.resH / LPR_PPF).toFixed(0)} ft coverage width`}
+              sub={`${(sensor.resH / lprPpf).toFixed(0)} ft coverage width`}
             />
           </div>
 
@@ -281,9 +291,9 @@ export default function LprCalculatorPage() {
               <div className="space-y-3">
                 <h4 className="text-sm font-medium text-gray-700 border-b pb-1">Optics</h4>
                 <DetailRow label="Required Focal Length" value={`${result.requiredFocalLength.toFixed(1)} mm`} />
-                <DetailRow label="LPR Standard" value={`${LPR_PPF} PPF (pixels/ft)`} />
+                <DetailRow label="LPR Standard" value={`${lprPpf} PPF (pixels/ft)`} />
                 <DetailRow label="Plate Height" value={`${result.plateHeightPx} px`} />
-                <DetailRow label="Coverage Width" value={`${(sensor.resH / LPR_PPF).toFixed(1)} ft`} />
+                <DetailRow label="Coverage Width" value={`${(sensor.resH / lprPpf).toFixed(1)} ft`} />
                 <DetailRow label="Optical Target" value={result.opticalTarget} />
               </div>
               <div className="space-y-3">
@@ -327,8 +337,8 @@ export default function LprCalculatorPage() {
               <tbody>
                 {[15, 25, 35, 45, 55, 65, 75].map((s) => {
                   const raw = s * 20;
-                  let snapped = SHUTTER_STEPS[0];
-                  for (const step of SHUTTER_STEPS) {
+                  let snapped = shutterSteps[0];
+                  for (const step of shutterSteps) {
                     if (step >= raw) { snapped = step; break; }
                     snapped = step;
                   }

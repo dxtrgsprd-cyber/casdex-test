@@ -690,6 +690,66 @@ model Notification {
 }
 
 // ============================================================
+// CALCULATOR DATA
+// ============================================================
+
+model MountConfig {
+  id            String   @id @default(cuid())
+  manufacturer  String
+  cameraModel   String?  // null = generic/default config for manufacturer
+  locationType  String   // 'Wall', 'Corner', 'Pole', 'Flush'
+  components    Json     @default("[]") // Array<{ component, partBase, description }>
+  colorSuffix   Json     @default("{}") // e.g. { "White": "W1", "Black": "B1" }
+  colorPattern  String?  // 'suffix' | 'replace-last'
+  sortOrder     Int      @default(0)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([manufacturer, cameraModel, locationType])
+  @@index([manufacturer])
+  @@map("mount_configs")
+}
+
+model CalcReferenceData {
+  id        String   @id @default(cuid())
+  category  String   // 'camera_power_type', 'smart_codec', 'bitrate_standard', etc.
+  key       String   // unique key within category
+  label     String   // display label
+  data      Json     @default("{}") // category-specific data payload
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([category, key])
+  @@index([category])
+  @@map("calc_reference_data")
+}
+
+model ComplianceJurisdiction {
+  id                              String   @id @default(cuid())
+  stateLabel                      String   @unique
+  code                            String
+  authority                       String
+  adoptedCodes                    Json     @default("[]") // string[]
+  maglockRequiresPirRex           Boolean  @default(true)
+  maglockRequiresPneumaticPte     Boolean  @default(false)
+  fireRatedFailSafeRequired       Boolean  @default(true)
+  fireRatedCloserRequired         Boolean  @default(true)
+  facpTieInRequired               Boolean  @default(true)
+  stairwellReIlluminationRequired Boolean  @default(false)
+  panicHardwareOnEgressDoors      Boolean  @default(true)
+  additionalNotes                 Json     @default("[]") // string[]
+  sortOrder                       Int      @default(0)
+  isActive                        Boolean  @default(true)
+  createdAt                       DateTime @default(now())
+  updatedAt                       DateTime @updatedAt
+
+  @@map("compliance_jurisdictions")
+}
+
+// ============================================================
 // AUDIT LOG
 // ============================================================
 

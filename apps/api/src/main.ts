@@ -17,7 +17,8 @@ async function bootstrap() {
       if (
         !origin ||
         allowed.includes(origin) ||
-        origin.endsWith('.vercel.app')
+        origin.endsWith('.vercel.app') ||
+        origin.endsWith('.up.railway.app')
       ) {
         callback(null, true);
       } else {

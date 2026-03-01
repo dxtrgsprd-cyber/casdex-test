@@ -80,6 +80,13 @@ const TOOLS = [
     href: '/tools/compliance-rules',
     color: 'border-l-amber-500',
   },
+  {
+    title: 'Calculator Data Manager',
+    description:
+      'Admin tool for managing device specs, mount configurations, reference data, and compliance rules used by all calculators. Supports bulk JSON import.',
+    href: '/tools/calculator-data',
+    color: 'border-l-cyan-500',
+  },
 ];
 
 export default function ToolsPage() {

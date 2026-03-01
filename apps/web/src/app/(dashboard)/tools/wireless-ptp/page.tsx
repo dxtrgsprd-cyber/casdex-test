@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import { useCalcDevices } from '@/hooks/useCalcDevices';
 
 // ============================================================
 // Wireless Radio Database
@@ -12,22 +13,6 @@ interface RadioSpec {
   fadeMax: number;  // dB fade margin
   windArea: number; // sq ft for wind calc
 }
-
-const WIRELESS_DB: Record<string, Record<string, RadioSpec>> = {
-  Ubiquiti: {
-    'airFiber-5XHD':  { freq: 5.8,  cap: 500,  fadeMax: 35, windArea: 2.2 },
-    'GigaBeam-Plus':  { freq: 60.0, cap: 1000, fadeMax: 25, windArea: 1.1 },
-    'Wave-AP':        { freq: 60.0, cap: 2000, fadeMax: 30, windArea: 1.5 },
-  },
-  Siklu: {
-    'MultiHaul-TG':   { freq: 60.0, cap: 1000, fadeMax: 30, windArea: 0.8 },
-    'EtherHaul-600T': { freq: 60.0, cap: 500,  fadeMax: 25, windArea: 0.7 },
-  },
-  Cambium: {
-    'Force-300-25':   { freq: 5.8,  cap: 450,  fadeMax: 35, windArea: 2.5 },
-    'cnWave-V1000':   { freq: 60.0, cap: 1000, fadeMax: 28, windArea: 1.2 },
-  },
-};
 
 type LinkMode = 'PtP' | 'PtMP';
 type MountLocation = 'Pole' | 'Rooftop' | 'Tower';
@@ -138,9 +123,21 @@ function calculateLosWind(
 // ============================================================
 
 export default function WirelessPtpPage() {
-  const manufacturers = Object.keys(WIRELESS_DB);
-  const [manufacturer, setManufacturer] = useState(manufacturers[0]);
-  const models = Object.keys(WIRELESS_DB[manufacturer] || {});
+  const { grouped: wirelessDb, loading: devicesLoading } = useCalcDevices('wireless');
+
+  // Build WIRELESS_DB-compatible structure from API data
+  const wirelessDbCompat: Record<string, Record<string, RadioSpec>> = {};
+  for (const [mfg, devices] of Object.entries(wirelessDb)) {
+    wirelessDbCompat[mfg] = {};
+    for (const d of devices) {
+      const s = d.specs as any;
+      wirelessDbCompat[mfg][d.model] = { freq: s.frequency, cap: s.maxThroughput, fadeMax: s.fadeMargin, windArea: s.windArea };
+    }
+  }
+
+  const manufacturers = Object.keys(wirelessDbCompat);
+  const [manufacturer, setManufacturer] = useState(manufacturers[0] || '');
+  const models = Object.keys(wirelessDbCompat[manufacturer] || {});
   const [model, setModel] = useState(models[0] || '');
   const [mode, setMode] = useState<LinkMode>('PtP');
   const [distanceMi, setDistanceMi] = useState('0.5');
@@ -151,13 +148,36 @@ export default function WirelessPtpPage() {
   const [, setMountLocation] = useState<MountLocation>('Pole');
   const [rainRate, setRainRate] = useState('25');
 
+  // Set defaults when data loads
+  useMemo(() => {
+    if (manufacturers.length > 0 && !manufacturer) {
+      setManufacturer(manufacturers[0]);
+      const firstModels = Object.keys(wirelessDbCompat[manufacturers[0]] || {});
+      setModel(firstModels[0] || '');
+    }
+  }, [manufacturers.length]);
+
   function handleManufacturerChange(mfr: string) {
     setManufacturer(mfr);
-    const newModels = Object.keys(WIRELESS_DB[mfr] || {});
+    const newModels = Object.keys(wirelessDbCompat[mfr] || {});
     setModel(newModels[0] || '');
   }
 
-  const radio = WIRELESS_DB[manufacturer]?.[model];
+  const radio = wirelessDbCompat[manufacturer]?.[model];
+
+  if (devicesLoading) {
+    return (
+      <div>
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-gray-900">Wireless Point-to-Point Calculator</h1>
+          <p className="text-sm text-gray-500 mt-1">Loading wireless radio data...</p>
+        </div>
+        <div className="card p-8 text-center">
+          <p className="text-sm text-gray-500">Loading devices...</p>
+        </div>
+      </div>
+    );
+  }
   const dist = parseFloat(distanceMi) || 0;
   const numSites = parseInt(sites) || 1;
   const camsPerSite = parseInt(camerasPerSite) || 0;
@@ -372,7 +392,7 @@ export default function WirelessPtpPage() {
                 </tr>
               </thead>
               <tbody>
-                {Object.entries(WIRELESS_DB[manufacturer] || {}).map(([m, r]) => {
+                {Object.entries(wirelessDbCompat[manufacturer] || {}).map(([m, r]) => {
                   const audit = calculateLinkAudit(r, mode, numSites, camsPerSite, dist, rain);
                   const isActive = m === model;
                   return (

@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma.service';
-import { CreateDeviceDto, UpdateDeviceDto, ListDevicesQueryDto } from './dto/devices.dto';
+import { CreateDeviceDto, UpdateDeviceDto, ListDevicesQueryDto, BulkImportDevicesDto } from './dto/devices.dto';
 
 @Injectable()
 export class DevicesService {
@@ -57,6 +57,23 @@ export class DevicesService {
       where.isActive = true;
     } else if (query.status === 'inactive') {
       where.isActive = false;
+    }
+
+    // Filter by calculator type — returns devices that have relevant specs populated
+    if (query.calculatorType) {
+      const specFilters: Record<string, string[]> = {
+        fov: ['resW', 'resH', 'sensorW', 'sensorH'],
+        lpr: ['resH', 'sensorH', 'fpsMax'],
+        wireless: ['frequency', 'maxThroughput', 'fadeMargin'],
+        power: ['powerDrawAmps'],
+      };
+      const requiredKeys = specFilters[query.calculatorType];
+      if (requiredKeys && requiredKeys.length > 0) {
+        // Filter devices where specs JSON contains the required keys
+        where.AND = requiredKeys.map((key: string) => ({
+          specs: { path: [key], not: Prisma.DbNull },
+        }));
+      }
     }
 
     const [data, total] = await Promise.all([
@@ -191,6 +208,63 @@ export class DevicesService {
       orderBy: { category: 'asc' },
     });
     return results.map((r) => r.category);
+  }
+
+  async bulkImport(items: CreateDeviceDto[]) {
+    let imported = 0;
+    const errors: string[] = [];
+
+    for (const dto of items) {
+      try {
+        await this.prisma.device.upsert({
+          where: { partNumber: dto.partNumber },
+          update: {
+            manufacturer: dto.manufacturer,
+            category: dto.category,
+            model: dto.model,
+            description: dto.description,
+            resolution: dto.resolution,
+            formFactor: dto.formFactor,
+            indoor: dto.indoor,
+            outdoor: dto.outdoor,
+            vandal: dto.vandal,
+            hfov: dto.hfov,
+            maxDistance: dto.maxDistance,
+            focalLength: dto.focalLength,
+            imager: dto.imager,
+            specs: (dto.specs || {}) as Prisma.InputJsonValue,
+            mountOptions: (dto.mountOptions || []) as Prisma.InputJsonValue,
+            msrp: dto.msrp,
+            ndaaCompliant: dto.ndaaCompliant ?? false,
+          },
+          create: {
+            manufacturer: dto.manufacturer,
+            category: dto.category,
+            model: dto.model,
+            partNumber: dto.partNumber,
+            description: dto.description,
+            resolution: dto.resolution,
+            formFactor: dto.formFactor,
+            indoor: dto.indoor,
+            outdoor: dto.outdoor,
+            vandal: dto.vandal,
+            hfov: dto.hfov,
+            maxDistance: dto.maxDistance,
+            focalLength: dto.focalLength,
+            imager: dto.imager,
+            specs: (dto.specs || {}) as Prisma.InputJsonValue,
+            mountOptions: (dto.mountOptions || []) as Prisma.InputJsonValue,
+            msrp: dto.msrp,
+            ndaaCompliant: dto.ndaaCompliant ?? false,
+          },
+        });
+        imported++;
+      } catch (e) {
+        errors.push(`Failed to import device ${dto.partNumber}: ${(e as Error).message}`);
+      }
+    }
+
+    return { imported, errors };
   }
 
   async getMounts(deviceId: string) {

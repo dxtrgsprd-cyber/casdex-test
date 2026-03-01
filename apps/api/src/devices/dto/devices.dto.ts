@@ -200,4 +200,13 @@ export class ListDevicesQueryDto {
   @IsString()
   @IsOptional()
   ndaaCompliant?: string; // 'true' | 'false'
+
+  @IsString()
+  @IsOptional()
+  calculatorType?: string; // 'fov' | 'lpr' | 'wireless' | 'power' — filter by calculator specs
+}
+
+export class BulkImportDevicesDto {
+  @IsArray()
+  items!: CreateDeviceDto[];
 }
