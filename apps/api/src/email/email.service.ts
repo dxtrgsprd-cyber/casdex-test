@@ -1,26 +1,17 @@
 import { Injectable } from '@nestjs/common';
 import { Resend } from 'resend';
 
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
 function inviteHtml(orgName: string, link: string): string {
   return `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
       <h1 style="font-size: 24px; font-weight: 700; color: #111827; margin-bottom: 16px;">CASDEX</h1>
       <p style="font-size: 15px; color: #374151; line-height: 1.6; margin-bottom: 8px;">
-        You have been invited to join <strong>${escapeHtml(orgName)}</strong> on CASDEX.
+        You have been invited to join <strong>${orgName}</strong> on CASDEX.
       </p>
       <p style="font-size: 15px; color: #374151; line-height: 1.6; margin-bottom: 24px;">
         Click the button below to set your password and get started.
       </p>
-      <a href="${escapeHtml(link)}" style="display: inline-block; background-color: #2563eb; color: #ffffff; font-size: 14px; font-weight: 600; text-decoration: none; padding: 10px 24px; border-radius: 6px;">
+      <a href="${link}" style="display: inline-block; background-color: #2563eb; color: #ffffff; font-size: 14px; font-weight: 600; text-decoration: none; padding: 10px 24px; border-radius: 6px;">
         Set Your Password
       </a>
       <p style="font-size: 13px; color: #6b7280; margin-top: 32px; line-height: 1.5;">
@@ -40,7 +31,7 @@ function resetHtml(link: string): string {
       <p style="font-size: 15px; color: #374151; line-height: 1.6; margin-bottom: 24px;">
         Click the button below to choose a new password.
       </p>
-      <a href="${escapeHtml(link)}" style="display: inline-block; background-color: #2563eb; color: #ffffff; font-size: 14px; font-weight: 600; text-decoration: none; padding: 10px 24px; border-radius: 6px;">
+      <a href="${link}" style="display: inline-block; background-color: #2563eb; color: #ffffff; font-size: 14px; font-weight: 600; text-decoration: none; padding: 10px 24px; border-radius: 6px;">
         Reset Password
       </a>
       <p style="font-size: 13px; color: #6b7280; margin-top: 32px; line-height: 1.5;">
@@ -65,7 +56,7 @@ export class EmailService {
 
   async sendInvite(email: string, token: string, orgName: string): Promise<void> {
     const link = `${this.frontendUrl}/set-password?token=${token}`;
-    await this.send(email, `You've been invited to ${escapeHtml(orgName)} on CASDEX`, inviteHtml(orgName, link));
+    await this.send(email, `You've been invited to ${orgName} on CASDEX`, inviteHtml(orgName, link));
   }
 
   async sendPasswordReset(email: string, token: string): Promise<void> {

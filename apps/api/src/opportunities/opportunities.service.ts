@@ -84,25 +84,14 @@ export class OpportunitiesService {
 
     // Role-based filtering: sales/presales/PM/field tech see only their assigned opps
     // Managers and admins see all
-    const roleFilter =
-      !roles.includes('org_admin') && !roles.includes('org_manager') &&
-      (query.assignedTo === 'me' || !query.assignedTo)
-        ? [
-            { createdById: userId },
-            { teamMembers: { some: { userId } } },
-          ]
-        : null;
-
-    // Combine search and role filters using AND so neither overwrites the other
-    if (searchFilter && roleFilter) {
-      where.AND = [
-        { OR: searchFilter },
-        { OR: roleFilter },
-      ];
-    } else if (searchFilter) {
-      where.OR = searchFilter;
-    } else if (roleFilter) {
-      where.OR = roleFilter;
+    if (!roles.includes('org_admin') && !roles.includes('org_manager')) {
+      if (query.assignedTo === 'me' || !query.assignedTo) {
+        // For non-admin roles, default to showing opps they created or are assigned to
+        where.OR = [
+          { createdById: userId },
+          { teamMembers: { some: { userId } } },
+        ];
+      }
     }
 
     // Sorting
@@ -752,7 +741,7 @@ export class OpportunitiesService {
       // This goes to managers — but they're not team members, so query by role
       const managers = await this.prisma.userTenant.findMany({
         where: {
-          tenantId: opp.tenantId,
+          tenantId: (opp as { id: string; oppNumber: string; projectName: string } & Record<string, unknown>)['tenantId'] as string || '',
           role: { name: 'org_manager' },
           isActive: true,
         },
