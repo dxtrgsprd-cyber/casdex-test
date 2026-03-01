@@ -99,26 +99,6 @@ const ROLE_PERMISSIONS: Record<string, Record<string, string[]>> = {
     vendors: [],
     subcontractors: [],
   },
-  lead: {
-    opportunities: [],
-    survey: [],
-    design: [],
-    projects: [],
-    tools: [],
-    management: [],
-    vendors: [],
-    subcontractors: [],
-  },
-  tech: {
-    opportunities: [],
-    survey: [],
-    design: [],
-    projects: [],
-    tools: [],
-    management: [],
-    vendors: [],
-    subcontractors: [],
-  },
 };
 
 async function main() {
@@ -220,20 +200,6 @@ async function main() {
   });
 
   console.log(`Created backup admin user: ${backupUser.email}`);
-
-  // Assign backup admin to default tenant
-  if (orgAdminRole) {
-    await prisma.userTenant.upsert({
-      where: { userId_tenantId: { userId: backupUser.id, tenantId: defaultTenant.id } },
-      update: {},
-      create: {
-        userId: backupUser.id,
-        tenantId: defaultTenant.id,
-        roleId: orgAdminRole.id,
-      },
-    });
-  }
-
   console.log('Seed complete.');
 }
 

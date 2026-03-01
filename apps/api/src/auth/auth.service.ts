@@ -332,9 +332,7 @@ export class AuthService {
       },
     });
 
-    // Fire-and-forget: do NOT await so the response time is constant
-    // regardless of whether the user exists (prevents email enumeration via timing)
-    this.emailService.sendPasswordReset(email, token).catch(() => {});
+    this.emailService.sendPasswordReset(email, token);
   }
 
   async changePassword(userId: string, currentPassword: string, newPassword: string): Promise<void> {

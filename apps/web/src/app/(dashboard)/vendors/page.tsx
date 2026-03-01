@@ -24,7 +24,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 export default function VendorsPage() {
   const { accessToken, roles } = useAuthStore();
-  const canManage = roles.includes('org_admin') || roles.includes('org_manager');
+  const canManage = roles.includes('admin') || roles.includes('manager');
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
