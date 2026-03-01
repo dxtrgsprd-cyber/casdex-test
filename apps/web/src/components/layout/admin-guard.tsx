@@ -14,15 +14,18 @@ export function AdminGuard({ children }: { children: React.ReactNode }) {
     setChecked(true);
   }, [hydrate]);
 
+  // Both global_admin and global_manager can access the admin portal
+  const hasGlobalRole = !!user?.globalRole;
+
   useEffect(() => {
     if (checked && !isAuthenticated) {
       router.replace('/login');
-    } else if (checked && isAuthenticated && !user?.isGlobalAdmin) {
+    } else if (checked && isAuthenticated && !hasGlobalRole) {
       router.replace('/');
     }
-  }, [checked, isAuthenticated, user, router]);
+  }, [checked, isAuthenticated, hasGlobalRole, router]);
 
-  if (!checked || !isAuthenticated || !user?.isGlobalAdmin) {
+  if (!checked || !isAuthenticated || !hasGlobalRole) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-gray-400 text-sm">Loading...</div>

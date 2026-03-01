@@ -9,12 +9,12 @@ import { CreateRoleDto, UpdateRoleDto } from './dto/roles.dto';
 
 // System default role names that cannot be deleted or renamed
 const SYSTEM_ROLE_NAMES = [
-  'admin',
-  'manager',
+  'org_admin',
+  'org_manager',
   'sales',
   'presales',
   'project_manager',
-  'field_technician',
+  'installer',
   'subcontractor',
   'customer',
 ];

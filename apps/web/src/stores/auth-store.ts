@@ -8,7 +8,7 @@ interface AuthUser {
   email: string;
   firstName: string;
   lastName: string;
-  isGlobalAdmin: boolean;
+  globalRole: string | null; // 'global_admin' | 'global_manager' | null
 }
 
 interface AuthTenant {

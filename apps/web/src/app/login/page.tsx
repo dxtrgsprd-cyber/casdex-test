@@ -20,7 +20,7 @@ export default function LoginPage() {
     try {
       await login(email, password);
       const { user } = useAuthStore.getState();
-      router.push(user?.isGlobalAdmin ? '/admin' : '/');
+      router.push(user?.globalRole ? '/admin' : '/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
     }

@@ -4,18 +4,18 @@ import { CreateTenantDto, UpdateTenantDto } from './dto/tenants.dto';
 
 // Default roles created for every new tenant
 const DEFAULT_ROLES = [
-  { name: 'admin', displayName: 'Org Admin' },
-  { name: 'manager', displayName: 'Org Manager' },
+  { name: 'org_admin', displayName: 'Org Admin' },
+  { name: 'org_manager', displayName: 'Org Manager' },
   { name: 'sales', displayName: 'Sales' },
   { name: 'presales', displayName: 'Presales' },
   { name: 'project_manager', displayName: 'Project Manager' },
-  { name: 'field_technician', displayName: 'Field Technician' },
+  { name: 'installer', displayName: 'Installer' },
   { name: 'subcontractor', displayName: 'Subcontractor' },
   { name: 'customer', displayName: 'Customer' },
 ];
 
 const DEFAULT_PERMISSIONS: Record<string, Record<string, string[]>> = {
-  admin: {
+  org_admin: {
     opportunities: ['create', 'read', 'update', 'delete'],
     survey: ['create', 'read', 'update', 'delete'],
     design: ['create', 'read', 'update', 'delete'],
@@ -25,7 +25,7 @@ const DEFAULT_PERMISSIONS: Record<string, Record<string, string[]>> = {
     vendors: ['create', 'read', 'update', 'delete'],
     subcontractors: ['create', 'read', 'update', 'delete'],
   },
-  manager: {
+  org_manager: {
     opportunities: ['create', 'read', 'update', 'delete'],
     survey: ['create', 'read', 'update', 'delete'],
     design: ['create', 'read', 'update', 'delete'],
@@ -65,7 +65,7 @@ const DEFAULT_PERMISSIONS: Record<string, Record<string, string[]>> = {
     vendors: ['read'],
     subcontractors: ['read'],
   },
-  field_technician: {
+  installer: {
     opportunities: ['read'],
     survey: ['read'],
     design: ['read'],

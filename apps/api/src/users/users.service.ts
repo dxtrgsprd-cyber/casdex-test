@@ -119,7 +119,7 @@ export class UsersService {
             title: true,
             avatar: true,
             isActive: true,
-            isGlobalAdmin: true,
+            globalRole: true,
             lastLoginAt: true,
             createdAt: true,
           },
@@ -315,7 +315,7 @@ export class UsersService {
         phone: true,
         avatar: true,
         title: true,
-        isGlobalAdmin: true,
+        globalRole: true,
         createdAt: true,
         tenants: {
           where: { isActive: true },

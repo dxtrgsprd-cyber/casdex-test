@@ -57,7 +57,7 @@ export interface LoginResponse {
       email: string;
       firstName: string;
       lastName: string;
-      isGlobalAdmin: boolean;
+      globalRole: string | null;
     };
     tenant: {
       id: string;
@@ -135,7 +135,7 @@ export interface UserListItem {
 }
 
 export interface UserDetail extends UserListItem {
-  isGlobalAdmin?: boolean;
+  globalRole?: string | null;
   role: {
     id: string;
     name: string;

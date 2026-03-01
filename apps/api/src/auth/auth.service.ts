@@ -15,7 +15,7 @@ interface TokenPayload {
   email: string;
   tenantId: string;
   roles: string[];
-  isGlobalAdmin: boolean;
+  globalRole: string | null;
 }
 
 export interface AuthTokens {
@@ -29,7 +29,7 @@ export interface LoginResult extends AuthTokens {
     email: string;
     firstName: string;
     lastName: string;
-    isGlobalAdmin: boolean;
+    globalRole: string | null;
   };
   tenant: {
     id: string;
@@ -73,6 +73,8 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    const hasGlobalRole = !!user.globalRole;
+
     // Get available tenants
     const availableTenants = user.tenants
       .filter((ut) => ut.tenant.isActive)
@@ -82,7 +84,7 @@ export class AuthService {
         slug: ut.tenant.slug,
       }));
 
-    if (availableTenants.length === 0 && !user.isGlobalAdmin) {
+    if (availableTenants.length === 0 && !hasGlobalRole) {
       throw new ForbiddenException('No active tenant assignments');
     }
 
@@ -90,10 +92,10 @@ export class AuthService {
     let selectedTenant: typeof availableTenants[0];
     let roles: string[] = [];
 
-    if (user.isGlobalAdmin && availableTenants.length === 0) {
-      // Global admin with no tenant assignments — use a system context
-      selectedTenant = { id: 'global', name: 'Global Admin', slug: 'global' };
-      roles = ['global_admin'];
+    if (hasGlobalRole && availableTenants.length === 0) {
+      // Global user with no tenant assignments — use a system context
+      selectedTenant = { id: 'global', name: 'Global', slug: 'global' };
+      roles = [user.globalRole!];
     } else if (tenantId) {
       const found = availableTenants.find((t) => t.id === tenantId);
       if (!found) {
@@ -119,7 +121,7 @@ export class AuthService {
       email: user.email,
       tenantId: selectedTenant.id,
       roles,
-      isGlobalAdmin: user.isGlobalAdmin,
+      globalRole: user.globalRole,
     });
 
     // Update last login
@@ -135,7 +137,7 @@ export class AuthService {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
-        isGlobalAdmin: user.isGlobalAdmin,
+        globalRole: user.globalRole,
       },
       tenant: selectedTenant,
       roles,
@@ -184,14 +186,14 @@ export class AuthService {
       ? [matchingTenant.role.name]
       : fallbackTenant
         ? [fallbackTenant.role.name]
-        : ['global_admin'];
+        : stored.user.globalRole ? [stored.user.globalRole] : [];
 
     return this.generateTokens({
       sub: stored.user.id,
       email: stored.user.email,
       tenantId,
       roles,
-      isGlobalAdmin: stored.user.isGlobalAdmin,
+      globalRole: stored.user.globalRole,
     });
   }
 
@@ -213,8 +215,9 @@ export class AuthService {
       throw new UnauthorizedException('User not found');
     }
 
+    const hasGlobalRole = !!user.globalRole;
     const userTenant = user.tenants.find((ut) => ut.tenantId === tenantId);
-    if (!userTenant && !user.isGlobalAdmin) {
+    if (!userTenant && !hasGlobalRole) {
       throw new ForbiddenException('You do not have access to this organization');
     }
 
@@ -222,14 +225,16 @@ export class AuthService {
       ? { id: userTenant.tenant.id, name: userTenant.tenant.name, slug: userTenant.tenant.slug }
       : { id: tenantId, name: 'Unknown', slug: 'unknown' };
 
-    const roles = userTenant ? [userTenant.role.name] : user.isGlobalAdmin ? ['global_admin'] : [];
+    const roles = userTenant
+      ? [userTenant.role.name]
+      : hasGlobalRole ? [user.globalRole!] : [];
 
     const tokens = await this.generateTokens({
       sub: user.id,
       email: user.email,
       tenantId,
       roles,
-      isGlobalAdmin: user.isGlobalAdmin,
+      globalRole: user.globalRole,
     });
 
     const availableTenants = user.tenants
@@ -247,7 +252,7 @@ export class AuthService {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
-        isGlobalAdmin: user.isGlobalAdmin,
+        globalRole: user.globalRole,
       },
       tenant,
       roles,

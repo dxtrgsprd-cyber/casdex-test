@@ -24,9 +24,17 @@ export class PermissionsGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const user = request.user as RequestUser;
 
-    // Global admins bypass permission checks
-    if (user.isGlobalAdmin) {
+    // Global admins bypass permission checks (GOD mode)
+    if (user.globalRole === 'global_admin') {
       return true;
+    }
+
+    // Global managers bypass permission checks for management module
+    if (user.globalRole === 'global_manager') {
+      const allManagement = requiredPermissions.every((p) => p.module === 'management');
+      if (allManagement) {
+        return true;
+      }
     }
 
     // Get the user's role in the current tenant

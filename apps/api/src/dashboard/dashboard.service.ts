@@ -6,7 +6,7 @@ export class DashboardService {
   constructor(private prisma: PrismaService) {}
 
   async getDashboard(tenantId: string, userId: string, roles: string[]) {
-    const isAdmin = roles.includes('admin') || roles.includes('manager');
+    const isAdmin = roles.includes('org_admin') || roles.includes('org_manager');
     const userFilter = isAdmin
       ? {}
       : {
