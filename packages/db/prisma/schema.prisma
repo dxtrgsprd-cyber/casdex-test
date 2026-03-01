@@ -325,7 +325,7 @@ model Design {
 model PlacedDevice {
   id           String  @id @default(cuid())
   designId     String
-  deviceId     String  // reference to device library
+  deviceId     String
   area         String? // e.g. "Building A - Main Entrance"
   floor        String?
   room         String?
@@ -340,8 +340,10 @@ model PlacedDevice {
   installDetails String?
 
   design Design @relation(fields: [designId], references: [id], onDelete: Cascade)
+  device Device @relation(fields: [deviceId], references: [id])
 
   @@index([designId])
+  @@index([deviceId])
   @@map("placed_devices")
 }
 
@@ -623,7 +625,8 @@ model Device {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  tenantDevices TenantDevice[]
+  tenantDevices  TenantDevice[]
+  placedDevices  PlacedDevice[]
 
   @@index([manufacturer, category])
   @@map("devices")

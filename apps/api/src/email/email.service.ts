@@ -1,12 +1,22 @@
 import { Injectable } from '@nestjs/common';
 import { Resend } from 'resend';
 
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 function inviteHtml(orgName: string, link: string): string {
+  const safeOrgName = escapeHtml(orgName);
   return `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
       <h1 style="font-size: 24px; font-weight: 700; color: #111827; margin-bottom: 16px;">CASDEX</h1>
       <p style="font-size: 15px; color: #374151; line-height: 1.6; margin-bottom: 8px;">
-        You have been invited to join <strong>${orgName}</strong> on CASDEX.
+        You have been invited to join <strong>${safeOrgName}</strong> on CASDEX.
       </p>
       <p style="font-size: 15px; color: #374151; line-height: 1.6; margin-bottom: 24px;">
         Click the button below to set your password and get started.
@@ -55,12 +65,12 @@ export class EmailService {
   }
 
   async sendInvite(email: string, token: string, orgName: string): Promise<void> {
-    const link = `${this.frontendUrl}/set-password?token=${token}`;
+    const link = `${this.frontendUrl}/set-password?token=${encodeURIComponent(token)}`;
     await this.send(email, `You've been invited to ${orgName} on CASDEX`, inviteHtml(orgName, link));
   }
 
   async sendPasswordReset(email: string, token: string): Promise<void> {
-    const link = `${this.frontendUrl}/reset-password?token=${token}`;
+    const link = `${this.frontendUrl}/reset-password?token=${encodeURIComponent(token)}`;
     await this.send(email, 'Reset your CASDEX password', resetHtml(link));
   }
 

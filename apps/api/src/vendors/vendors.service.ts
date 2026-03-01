@@ -12,25 +12,17 @@ export class VendorsService {
   async list(tenantId: string, query: ListVendorsQueryDto) {
     const where: Record<string, unknown> = { tenantId };
 
-    if (query.search) {
-      where.OR = [
-        { name: { contains: query.search, mode: 'insensitive' } },
-      ];
-    }
-
+    // Status filter at DB level
     if (query.status === 'active') {
       where.isActive = true;
     } else if (query.status === 'inactive') {
       where.isActive = false;
     }
 
-    const [data, total] = await Promise.all([
-      this.prisma.vendor.findMany({
-        where: where as never,
-        orderBy: { name: 'asc' },
-      }),
-      this.prisma.vendor.count({ where: where as never }),
-    ]);
+    const data = await this.prisma.vendor.findMany({
+      where: where as never,
+      orderBy: { name: 'asc' },
+    });
 
     // Filter by category in JS since categories is a JSON array
     let filtered = data;
@@ -43,7 +35,7 @@ export class VendorsService {
       });
     }
 
-    // Also search within contacts JSON
+    // Search across name and contacts JSON in JS
     if (query.search) {
       const searchLower = query.search.toLowerCase();
       filtered = filtered.filter((v) => {

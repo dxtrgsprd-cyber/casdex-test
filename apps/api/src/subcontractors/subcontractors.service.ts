@@ -16,25 +16,17 @@ export class SubcontractorsService {
   async list(tenantId: string, query: ListSubcontractorsQueryDto) {
     const where: Record<string, unknown> = { tenantId };
 
-    if (query.search) {
-      where.OR = [
-        { companyName: { contains: query.search, mode: 'insensitive' } },
-      ];
-    }
-
+    // Status filter at DB level
     if (query.status === 'active') {
       where.isActive = true;
     } else if (query.status === 'inactive') {
       where.isActive = false;
     }
 
-    const [data, total] = await Promise.all([
-      this.prisma.subcontractor.findMany({
-        where: where as never,
-        orderBy: { companyName: 'asc' },
-      }),
-      this.prisma.subcontractor.count({ where: where as never }),
-    ]);
+    const data = await this.prisma.subcontractor.findMany({
+      where: where as never,
+      orderBy: { companyName: 'asc' },
+    });
 
     // Filter by trade/territory in JS since they're JSON arrays
     let filtered = data;
@@ -55,7 +47,7 @@ export class SubcontractorsService {
       });
     }
 
-    // Also search within contacts JSON
+    // Search across company name and contacts JSON in JS
     if (query.search) {
       const searchLower = query.search.toLowerCase();
       filtered = filtered.filter((s) => {

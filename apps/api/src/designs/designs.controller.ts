@@ -30,7 +30,7 @@ export class DesignsController {
   // --- Designs ---
 
   @Get()
-  @RequirePermissions({ module: 'designs', action: 'read' })
+  @RequirePermissions({ module: 'design', action: 'read' })
   async list(
     @CurrentUser() user: RequestUser,
     @Query() query: ListDesignsQueryDto,
@@ -40,7 +40,7 @@ export class DesignsController {
   }
 
   @Get(':id')
-  @RequirePermissions({ module: 'designs', action: 'read' })
+  @RequirePermissions({ module: 'design', action: 'read' })
   async get(
     @Param('id') id: string,
     @CurrentUser() user: RequestUser,
@@ -50,7 +50,7 @@ export class DesignsController {
   }
 
   @Post()
-  @RequirePermissions({ module: 'designs', action: 'create' })
+  @RequirePermissions({ module: 'design', action: 'create' })
   async create(
     @Body() dto: CreateDesignDto,
     @CurrentUser() user: RequestUser,
@@ -60,7 +60,7 @@ export class DesignsController {
   }
 
   @Put(':id')
-  @RequirePermissions({ module: 'designs', action: 'update' })
+  @RequirePermissions({ module: 'design', action: 'update' })
   async update(
     @Param('id') id: string,
     @Body() dto: UpdateDesignDto,
@@ -71,7 +71,7 @@ export class DesignsController {
   }
 
   @Put(':id/status')
-  @RequirePermissions({ module: 'designs', action: 'update' })
+  @RequirePermissions({ module: 'design', action: 'update' })
   async changeStatus(
     @Param('id') id: string,
     @Body() dto: ChangeDesignStatusDto,
@@ -82,7 +82,7 @@ export class DesignsController {
   }
 
   @Delete(':id')
-  @RequirePermissions({ module: 'designs', action: 'delete' })
+  @RequirePermissions({ module: 'design', action: 'delete' })
   async delete(
     @Param('id') id: string,
     @CurrentUser() user: RequestUser,
@@ -93,7 +93,7 @@ export class DesignsController {
   // --- Placed Devices ---
 
   @Post(':id/devices')
-  @RequirePermissions({ module: 'designs', action: 'update' })
+  @RequirePermissions({ module: 'design', action: 'update' })
   async addDevice(
     @Param('id') id: string,
     @Body() dto: AddPlacedDeviceDto,
@@ -104,7 +104,7 @@ export class DesignsController {
   }
 
   @Put(':id/devices/:deviceId')
-  @RequirePermissions({ module: 'designs', action: 'update' })
+  @RequirePermissions({ module: 'design', action: 'update' })
   async updateDevice(
     @Param('id') id: string,
     @Param('deviceId') deviceId: string,
@@ -116,7 +116,7 @@ export class DesignsController {
   }
 
   @Delete(':id/devices/:deviceId')
-  @RequirePermissions({ module: 'designs', action: 'update' })
+  @RequirePermissions({ module: 'design', action: 'update' })
   async removeDevice(
     @Param('id') id: string,
     @Param('deviceId') deviceId: string,
@@ -128,7 +128,7 @@ export class DesignsController {
   // --- Hardware Schedule ---
 
   @Get(':id/hardware-schedule')
-  @RequirePermissions({ module: 'designs', action: 'read' })
+  @RequirePermissions({ module: 'design', action: 'read' })
   async hardwareSchedule(
     @Param('id') id: string,
     @CurrentUser() user: RequestUser,
@@ -140,7 +140,7 @@ export class DesignsController {
   // --- Statement of Work ---
 
   @Get(':id/sow')
-  @RequirePermissions({ module: 'designs', action: 'read' })
+  @RequirePermissions({ module: 'design', action: 'read' })
   async sow(
     @Param('id') id: string,
     @CurrentUser() user: RequestUser,

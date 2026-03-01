@@ -12,8 +12,8 @@ interface NavItem {
 }
 
 const SECONDARY_NAV_ITEMS: NavItem[] = [
-  { label: 'Vendors', href: '/vendors', roles: ['admin', 'manager', 'sales', 'presales'] },
-  { label: 'Subcontractors', href: '/subcontractors', roles: ['admin', 'manager', 'project_manager'] },
+  { label: 'Vendors', href: '/vendors', roles: ['org_admin', 'org_manager', 'sales', 'presales'] },
+  { label: 'Subcontractors', href: '/subcontractors', roles: ['org_admin', 'org_manager', 'project_manager'] },
   { label: 'Tools', href: '/tools' },
   { label: 'Management', href: '/management' },
 ];

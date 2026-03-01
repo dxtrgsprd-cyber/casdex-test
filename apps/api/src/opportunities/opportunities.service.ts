@@ -72,26 +72,36 @@ export class OpportunitiesService {
       where.territory = query.territory;
     }
 
+    // Build AND conditions for filters that need to coexist
+    const andConditions: Array<Record<string, unknown>> = [];
+
     // Search (customer name, project name, OPP number)
-    const searchFilter = query.search
-      ? [
+    if (query.search) {
+      andConditions.push({
+        OR: [
           { customerName: { contains: query.search, mode: 'insensitive' } },
           { projectName: { contains: query.search, mode: 'insensitive' } },
           { oppNumber: { contains: query.search, mode: 'insensitive' } },
           { projectNumber: { contains: query.search, mode: 'insensitive' } },
-        ]
-      : null;
+        ],
+      });
+    }
 
     // Role-based filtering: sales/presales/PM/field tech see only their assigned opps
     // Managers and admins see all
     if (!roles.includes('org_admin') && !roles.includes('org_manager')) {
       if (query.assignedTo === 'me' || !query.assignedTo) {
-        // For non-admin roles, default to showing opps they created or are assigned to
-        where.OR = [
-          { createdById: userId },
-          { teamMembers: { some: { userId } } },
-        ];
+        andConditions.push({
+          OR: [
+            { createdById: userId },
+            { teamMembers: { some: { userId } } },
+          ],
+        });
       }
+    }
+
+    if (andConditions.length > 0) {
+      where.AND = andConditions;
     }
 
     // Sorting
@@ -741,7 +751,7 @@ export class OpportunitiesService {
       // This goes to managers — but they're not team members, so query by role
       const managers = await this.prisma.userTenant.findMany({
         where: {
-          tenantId: (opp as { id: string; oppNumber: string; projectName: string } & Record<string, unknown>)['tenantId'] as string || '',
+          tenantId: opp.tenantId,
           role: { name: 'org_manager' },
           isActive: true,
         },

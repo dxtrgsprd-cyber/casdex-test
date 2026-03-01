@@ -65,6 +65,8 @@ export const DEFAULT_ORG_ROLES = [
   'installer',
   'subcontractor',
   'customer',
+  'lead',
+  'tech',
 ] as const;
 
 export type DefaultOrgRole = (typeof DEFAULT_ORG_ROLES)[number];
