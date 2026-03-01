@@ -482,17 +482,33 @@ async function main() {
   ];
 
   for (const mc of mountConfigs) {
-    await prisma.mountConfig.upsert({
-      where: {
-        manufacturer_cameraModel_locationType: {
-          manufacturer: mc.manufacturer,
-          cameraModel: mc.cameraModel,
-          locationType: mc.locationType,
+    if (mc.cameraModel === null) {
+      // Prisma composite unique where does not accept null values,
+      // so use findFirst + create/update for generic (null cameraModel) entries
+      const existing = await prisma.mountConfig.findFirst({
+        where: { manufacturer: mc.manufacturer, cameraModel: null, locationType: mc.locationType },
+      });
+      if (existing) {
+        await prisma.mountConfig.update({
+          where: { id: existing.id },
+          data: { components: mc.components, colorSuffix: mc.colorSuffix, colorPattern: mc.colorPattern },
+        });
+      } else {
+        await prisma.mountConfig.create({ data: mc });
+      }
+    } else {
+      await prisma.mountConfig.upsert({
+        where: {
+          manufacturer_cameraModel_locationType: {
+            manufacturer: mc.manufacturer,
+            cameraModel: mc.cameraModel,
+            locationType: mc.locationType,
+          },
         },
-      },
-      update: { components: mc.components, colorSuffix: mc.colorSuffix, colorPattern: mc.colorPattern },
-      create: mc,
-    });
+        update: { components: mc.components, colorSuffix: mc.colorSuffix, colorPattern: mc.colorPattern },
+        create: mc,
+      });
+    }
   }
 
   console.log(`Seeded ${mountConfigs.length} mount configs`);

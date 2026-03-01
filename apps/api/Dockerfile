@@ -54,7 +54,7 @@ ENV NODE_ENV=production
 
 EXPOSE 4000
 
-# Run migrations, seed database, then start the API
+# Run migrations (must succeed), seed database (non-fatal), then start the API
 CMD pnpm --filter @casdex/db exec prisma migrate deploy && \
-    pnpm --filter @casdex/db exec tsx prisma/seed.ts && \
+    (pnpm --filter @casdex/db exec tsx prisma/seed.ts || echo "Seed warning: seed script failed, continuing startup") && \
     node apps/api/dist/main.js
