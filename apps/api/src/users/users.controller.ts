@@ -10,6 +10,7 @@ import {
   UseGuards,
   ParseIntPipe,
   DefaultValuePipe,
+  ForbiddenException,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { CreateUserDto, UpdateUserDto, UpdateUserRoleDto, UpdateProfileDto, ListUsersByTenantDto } from './dto/users.dto';
@@ -49,7 +50,12 @@ export class UsersController {
   async listUsersByTenant(
     @Param('tenantId') tenantId: string,
     @Body() dto: ListUsersByTenantDto,
+    @CurrentUser() user: RequestUser,
   ) {
+    // org_admin can only view users within their own tenant
+    if (!isGlobalAdmin(user) && user.globalRole !== 'global_manager' && tenantId !== user.tenantId) {
+      throw new ForbiddenException('You can only view users in your own organization');
+    }
     const result = await this.usersService.listUsersByTenant(tenantId, dto.page ?? 1, dto.pageSize ?? 25, {
       search: dto.search,
       roleId: dto.roleId,
@@ -96,8 +102,8 @@ export class UsersController {
     @Body() dto: CreateUserDto,
     @CurrentUser() user: RequestUser,
   ) {
-    const isAdmin = user.roles.includes('admin') || user.roles.includes('manager') || user.isGlobalAdmin;
-    const targetTenantId = (user.isGlobalAdmin && dto.tenantId) ? dto.tenantId : user.tenantId;
+    const isAdmin = user.roles.includes('org_admin') || user.roles.includes('org_manager') || isGlobalAdmin(user);
+    const targetTenantId = (isGlobalAdmin(user) && dto.tenantId) ? dto.tenantId : user.tenantId;
     const result = await this.usersService.createUser(targetTenantId, dto, isAdmin);
     return { success: true, data: result };
   }

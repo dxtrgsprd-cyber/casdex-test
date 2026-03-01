@@ -12,6 +12,8 @@ const DEFAULT_ROLES = [
   { name: 'installer', displayName: 'Installer' },
   { name: 'subcontractor', displayName: 'Subcontractor' },
   { name: 'customer', displayName: 'Customer' },
+  { name: 'lead', displayName: 'Lead' },
+  { name: 'tech', displayName: 'Tech' },
 ];
 
 // Default permission matrix per role per module

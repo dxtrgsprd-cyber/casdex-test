@@ -121,7 +121,7 @@ export function AdminNav() {
                     </p>
                     <p className="text-xs text-gray-500">{user?.email}</p>
                     <p className="text-xs text-primary-600 font-medium mt-0.5">
-                      Global Admin
+                      {user?.globalRole === 'global_manager' ? 'Global Manager' : 'Global Admin'}
                     </p>
                   </div>
                   <button

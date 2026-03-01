@@ -39,27 +39,6 @@ export default function AdminUsersPage() {
     try {
       const tenantsRes = await tenantsApi.list(accessToken);
       setTenants(tenantsRes.data);
-
-      // Load users from each tenant by fetching tenant details
-      const allUsers: TenantUser[] = [];
-      const seenUserTenantPairs = new Set<string>();
-
-      for (const t of tenantsRes.data) {
-        try {
-          const tenantDetail = await tenantsApi.get(accessToken, t.id);
-          // The tenant detail includes users through the _count, but we need to
-          // use the users endpoint. Since we're global admin, we can use the
-          // standard users endpoint by switching context.
-          // For now, we'll show tenant-level info from what we have.
-          // Users per-tenant will be accessible from the tenant detail page.
-        } catch {
-          // skip
-        }
-      }
-
-      // For the admin users page, we'll show a summary view by tenant
-      // Users can click through to tenant detail for full user management
-      setUsers(allUsers);
     } catch {
       // handled by loading state
     }

@@ -202,7 +202,7 @@ export function formatDocumentName(
   jobName: string,
   version: number,
 ): string {
-  const sanitize = (s: string) => s.replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_');
+  const sanitize = (s: string) => s.replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
   return `${oppNumber}_${docType}_${sanitize(customer)}_${sanitize(jobName)}_V${version}`;
 }
 
@@ -214,7 +214,8 @@ export interface ApiResponse<T = unknown> {
   message?: string;
 }
 
-export interface PaginatedResponse<T> extends ApiResponse<T[]> {
+export interface PaginatedResponse<T> extends Omit<ApiResponse<T[]>, 'data'> {
+  data: T[];
   total: number;
   page: number;
   pageSize: number;
