@@ -80,7 +80,7 @@ export default function DesignListPage() {
     setShowCreate(true);
     if (accessToken) {
       try {
-        const res = await oppsApi.list(accessToken, { status: 'active' });
+        const res = await oppsApi.list(accessToken, {});
         setOpps(res.data || []);
       } catch {
         setOpps([]);
