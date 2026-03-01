@@ -23,14 +23,14 @@ export class TenantsController {
   // --- Global roles + org_admin: tenant listing ---
 
   @Get()
-  @Roles('global_admin', 'global_manager', 'org_admin')
+  @Roles('global_admin', 'global_manager')
   async listTenants() {
     const tenants = await this.tenantsService.listTenants();
     return { success: true, data: tenants };
   }
 
   @Get(':id')
-  @Roles('global_admin', 'global_manager', 'org_admin')
+  @Roles('global_admin', 'global_manager')
   async getTenant(@Param('id') id: string) {
     const tenant = await this.tenantsService.getTenant(id);
     return { success: true, data: tenant };

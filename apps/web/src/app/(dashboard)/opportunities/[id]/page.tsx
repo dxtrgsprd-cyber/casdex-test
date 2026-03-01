@@ -413,7 +413,7 @@ function DesignsTab({ opp, onRefresh }: { opp: Opportunity; onRefresh: () => voi
   const [showCreate, setShowCreate] = useState(false);
   const [createName, setCreateName] = useState('');
   const [creating, setCreating] = useState(false);
-  const canManage = roles.includes('admin') || roles.includes('manager') || roles.includes('presales');
+  const canManage = roles.includes('org_admin') || roles.includes('org_manager') || roles.includes('presales');
 
   const STATUS_COLORS: Record<string, string> = {
     draft: 'bg-gray-100 text-gray-700',

@@ -18,7 +18,7 @@ const COMMON_TRADES = [
 
 export default function SubcontractorsPage() {
   const { accessToken, roles } = useAuthStore();
-  const canManage = roles.includes('admin') || roles.includes('manager');
+  const canManage = roles.includes('org_admin') || roles.includes('org_manager');
   const [subs, setSubs] = useState<Subcontractor[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');

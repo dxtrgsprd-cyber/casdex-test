@@ -73,25 +73,36 @@ export class OpportunitiesService {
     }
 
     // Search (customer name, project name, OPP number)
-    if (query.search) {
-      where.OR = [
-        { customerName: { contains: query.search, mode: 'insensitive' } },
-        { projectName: { contains: query.search, mode: 'insensitive' } },
-        { oppNumber: { contains: query.search, mode: 'insensitive' } },
-        { projectNumber: { contains: query.search, mode: 'insensitive' } },
-      ];
-    }
+    const searchFilter = query.search
+      ? [
+          { customerName: { contains: query.search, mode: 'insensitive' } },
+          { projectName: { contains: query.search, mode: 'insensitive' } },
+          { oppNumber: { contains: query.search, mode: 'insensitive' } },
+          { projectNumber: { contains: query.search, mode: 'insensitive' } },
+        ]
+      : null;
 
     // Role-based filtering: sales/presales/PM/field tech see only their assigned opps
     // Managers and admins see all
-    if (!roles.includes('org_admin') && !roles.includes('org_manager')) {
-      if (query.assignedTo === 'me' || !query.assignedTo) {
-        // For non-admin roles, default to showing opps they created or are assigned to
-        where.OR = [
-          { createdById: userId },
-          { teamMembers: { some: { userId } } },
-        ];
-      }
+    const roleFilter =
+      !roles.includes('org_admin') && !roles.includes('org_manager') &&
+      (query.assignedTo === 'me' || !query.assignedTo)
+        ? [
+            { createdById: userId },
+            { teamMembers: { some: { userId } } },
+          ]
+        : null;
+
+    // Combine search and role filters using AND so neither overwrites the other
+    if (searchFilter && roleFilter) {
+      where.AND = [
+        { OR: searchFilter },
+        { OR: roleFilter },
+      ];
+    } else if (searchFilter) {
+      where.OR = searchFilter;
+    } else if (roleFilter) {
+      where.OR = roleFilter;
     }
 
     // Sorting
