@@ -66,6 +66,7 @@ export interface LoginResponse {
     };
     roles: string[];
     availableTenants: Array<{ id: string; name: string; slug: string }>;
+    enabledModules: string[];
   };
 }
 
@@ -540,7 +541,7 @@ export const tenantsApi = {
       body: JSON.stringify(data),
     }),
 
-  update: (token: string, id: string, data: { name?: string; isActive?: boolean }) =>
+  update: (token: string, id: string, data: { name?: string; isActive?: boolean; enabledModules?: string[] }) =>
     fetchApi<{ success: boolean; data: Tenant }>(`/tenants/${id}`, {
       method: 'PUT',
       token,

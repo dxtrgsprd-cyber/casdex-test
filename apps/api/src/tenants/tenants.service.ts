@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { CreateTenantDto, UpdateTenantDto } from './dto/tenants.dto';
+import { APP_MODULES, parseTenantSettings } from '@casdex/shared';
 
 // Default roles created for every new tenant
 const DEFAULT_ROLES = [
@@ -109,6 +110,7 @@ export class TenantsService {
         name: true,
         slug: true,
         isActive: true,
+        settings: true,
         createdAt: true,
         _count: { select: { users: true } },
       },
@@ -146,7 +148,11 @@ export class TenantsService {
     // Create tenant with default roles and permissions in a transaction
     const tenant = await this.prisma.$transaction(async (tx) => {
       const newTenant = await tx.tenant.create({
-        data: { name: dto.name, slug: dto.slug },
+        data: {
+          name: dto.name,
+          slug: dto.slug,
+          settings: { enabledModules: [...APP_MODULES] },
+        },
       });
 
       // Create default roles
@@ -191,12 +197,21 @@ export class TenantsService {
       throw new NotFoundException('Tenant not found');
     }
 
+    const data: Record<string, unknown> = {};
+    if (dto.name !== undefined) data.name = dto.name;
+    if (dto.isActive !== undefined) data.isActive = dto.isActive;
+
+    if (dto.enabledModules !== undefined) {
+      const existingSettings = (tenant.settings as Record<string, unknown>) || {};
+      data.settings = {
+        ...existingSettings,
+        enabledModules: dto.enabledModules,
+      };
+    }
+
     await this.prisma.tenant.update({
       where: { id },
-      data: {
-        name: dto.name,
-        isActive: dto.isActive,
-      },
+      data,
     });
 
     return this.getTenant(id);
@@ -236,5 +251,67 @@ export class TenantsService {
         isCustom: true,
       },
     });
+  }
+
+  /**
+   * Backfill missing module permission rows for all existing tenant roles.
+   * For each default role, checks if permission rows exist for every module
+   * in DEFAULT_PERMISSIONS. Creates missing rows so the PermissionsGuard
+   * doesn't deny access to newly added modules (e.g. vendors, subcontractors).
+   */
+  async backfillModulePermissions() {
+    const tenants = await this.prisma.tenant.findMany({
+      select: { id: true },
+    });
+
+    let totalCreated = 0;
+
+    for (const tenant of tenants) {
+      const roles = await this.prisma.role.findMany({
+        where: { tenantId: tenant.id },
+        include: { permissions: true },
+      });
+
+      for (const role of roles) {
+        const defaultPerms = DEFAULT_PERMISSIONS[role.name];
+        if (!defaultPerms) continue;
+
+        const existingKeys = new Set(
+          role.permissions.map((p) => `${p.module}:${p.action}`),
+        );
+
+        const missing: Array<{ roleId: string; module: string; action: string; allowed: boolean }> = [];
+
+        for (const [module, actions] of Object.entries(defaultPerms)) {
+          for (const action of ['create', 'read', 'update', 'delete']) {
+            if (!existingKeys.has(`${module}:${action}`)) {
+              missing.push({
+                roleId: role.id,
+                module,
+                action,
+                allowed: actions.includes(action),
+              });
+            }
+          }
+        }
+
+        if (missing.length > 0) {
+          await this.prisma.rolePermission.createMany({ data: missing });
+          totalCreated += missing.length;
+        }
+      }
+    }
+
+    return { totalCreated, tenantsProcessed: tenants.length };
+  }
+
+  async getEnabledModules(tenantId: string): Promise<string[]> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { settings: true },
+    });
+    if (!tenant) return [];
+    const settings = parseTenantSettings(tenant.settings);
+    return settings.enabledModules;
   }
 }

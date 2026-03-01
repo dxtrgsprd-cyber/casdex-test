@@ -65,6 +65,14 @@ export class TenantsController {
     return this.tenantsService.deleteTenant(id);
   }
 
+  // Backfill missing module permissions for all existing tenants
+  @Post('backfill-permissions')
+  @Roles('global_admin')
+  async backfillPermissions() {
+    const result = await this.tenantsService.backfillModulePermissions();
+    return { success: true, data: result };
+  }
+
   // --- Roles within current tenant ---
 
   @Get('current/roles')

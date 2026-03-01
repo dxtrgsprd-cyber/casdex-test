@@ -6,6 +6,14 @@ export interface ModuleItem {
   enabled: boolean;
 }
 
+// Maps MODULE_ITEMS keys to APP_MODULES names for enabled-module filtering
+export const MODULE_KEY_TO_APP_MODULE: Record<string, string> = {
+  'project-oversight': 'opportunities',
+  'field-data': 'survey',
+  'system-design': 'design',
+  'scope-governance': 'projects',
+};
+
 export const MODULE_ITEMS: ModuleItem[] = [
   { key: 'project-oversight', iconLabel: 'Project Oversight', navLabel: 'Opportunities', href: '/opportunities', enabled: true },
   { key: 'field-data', iconLabel: 'Field Data', navLabel: 'Survey', href: '/survey', enabled: true },

@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth-store';
-import { MODULE_ITEMS, ModuleIcon } from '@/components/module-icons';
+import { MODULE_ITEMS, MODULE_KEY_TO_APP_MODULE, ModuleIcon } from '@/components/module-icons';
 import { useState } from 'react';
 
 interface NavItem {
@@ -18,10 +18,17 @@ const SECONDARY_NAV_ITEMS: NavItem[] = [
   { label: 'Management', href: '/management' },
 ];
 
+const SECONDARY_NAV_MODULE_MAP: Record<string, string> = {
+  '/vendors': 'vendors',
+  '/subcontractors': 'subcontractors',
+  '/tools': 'tools',
+  '/management': 'management',
+};
+
 export function TopNav() {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, tenant, roles, availableTenants, logout, switchTenant } = useAuthStore();
+  const { user, tenant, roles, enabledModules, availableTenants, logout, switchTenant } = useAuthStore();
   const [showTenantSwitcher, setShowTenantSwitcher] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
 
@@ -49,27 +56,34 @@ export function TopNav() {
 
         {/* Module Icon Navigation */}
         <nav className="flex items-center gap-1 flex-1">
-          {MODULE_ITEMS.map((item) => {
-            const isActive = item.enabled && pathname.startsWith(item.href);
-            return (
-              <button
-                key={item.key}
-                onClick={() => item.enabled && router.push(item.href)}
-                disabled={!item.enabled}
-                title={item.enabled ? item.iconLabel : `${item.iconLabel} (coming soon)`}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                  !item.enabled
-                    ? 'opacity-30 cursor-not-allowed text-gray-400'
-                    : isActive
-                      ? 'bg-primary-50 text-primary-700'
-                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-                }`}
-              >
-                <ModuleIcon moduleKey={item.key} size={18} />
-                <span className="hidden lg:inline">{item.navLabel}</span>
-              </button>
-            );
-          })}
+          {MODULE_ITEMS
+            .filter((item) => {
+              const moduleName = MODULE_KEY_TO_APP_MODULE[item.key];
+              if (!moduleName) return true;
+              if (enabledModules.length === 0) return true;
+              return enabledModules.includes(moduleName);
+            })
+            .map((item) => {
+              const isActive = item.enabled && pathname.startsWith(item.href);
+              return (
+                <button
+                  key={item.key}
+                  onClick={() => item.enabled && router.push(item.href)}
+                  disabled={!item.enabled}
+                  title={item.enabled ? item.iconLabel : `${item.iconLabel} (coming soon)`}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                    !item.enabled
+                      ? 'opacity-30 cursor-not-allowed text-gray-400'
+                      : isActive
+                        ? 'bg-primary-50 text-primary-700'
+                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                  }`}
+                >
+                  <ModuleIcon moduleKey={item.key} size={18} />
+                  <span className="hidden lg:inline">{item.navLabel}</span>
+                </button>
+              );
+            })}
 
           {/* Separator */}
           <div className="w-px h-5 bg-gray-200 mx-1" />
@@ -77,8 +91,10 @@ export function TopNav() {
           {/* Secondary text tabs */}
           {SECONDARY_NAV_ITEMS
             .filter((item) => {
-              if (!item.roles) return true;
-              return item.roles.some((r) => roles.includes(r));
+              if (item.roles && !item.roles.some((r) => roles.includes(r))) return false;
+              const moduleName = SECONDARY_NAV_MODULE_MAP[item.href];
+              if (moduleName && enabledModules.length > 0 && !enabledModules.includes(moduleName)) return false;
+              return true;
             })
             .map((item) => {
               const isActive = pathname.startsWith(item.href);

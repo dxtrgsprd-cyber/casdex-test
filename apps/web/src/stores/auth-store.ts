@@ -21,6 +21,7 @@ interface AuthState {
   user: AuthUser | null;
   tenant: AuthTenant | null;
   roles: string[];
+  enabledModules: string[];
   availableTenants: AuthTenant[];
   accessToken: string | null;
   refreshToken: string | null;
@@ -62,6 +63,7 @@ function saveToStorage(data: {
   user: AuthUser;
   tenant: AuthTenant;
   roles: string[];
+  enabledModules: string[];
   availableTenants: AuthTenant[];
 }) {
   if (typeof window !== 'undefined') {
@@ -90,6 +92,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   tenant: null,
   roles: [],
+  enabledModules: [],
   availableTenants: [],
   accessToken: null,
   refreshToken: null,
@@ -120,6 +123,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         user: data.user,
         tenant: data.tenant,
         roles: data.roles,
+        enabledModules: data.enabledModules || [],
         availableTenants: data.availableTenants,
       };
 
@@ -151,6 +155,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       user: null,
       tenant: null,
       roles: [],
+      enabledModules: [],
       availableTenants: [],
       accessToken: null,
       refreshToken: null,
@@ -173,6 +178,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         user: data.user,
         tenant: data.tenant,
         roles: data.roles,
+        enabledModules: data.enabledModules || [],
         availableTenants: data.availableTenants,
       };
 

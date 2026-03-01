@@ -9,6 +9,7 @@ import { compare, hash } from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { PrismaService } from '../common/prisma.service';
 import { EmailService } from '../email/email.service';
+import { APP_MODULES, parseTenantSettings } from '@casdex/shared';
 
 interface TokenPayload {
   sub: string;
@@ -38,6 +39,7 @@ export interface LoginResult extends AuthTokens {
   };
   roles: string[];
   availableTenants: Array<{ id: string; name: string; slug: string }>;
+  enabledModules: string[];
 }
 
 @Injectable()
@@ -130,6 +132,16 @@ export class AuthService {
       data: { lastLoginAt: new Date() },
     });
 
+    // Extract enabled modules from tenant settings
+    let enabledModules: string[] = [...APP_MODULES];
+    if (selectedTenant.id !== 'global') {
+      const matchedUserTenant = user.tenants.find((ut) => ut.tenantId === selectedTenant.id);
+      if (matchedUserTenant) {
+        const settings = parseTenantSettings(matchedUserTenant.tenant.settings);
+        enabledModules = settings.enabledModules;
+      }
+    }
+
     return {
       ...tokens,
       user: {
@@ -142,6 +154,7 @@ export class AuthService {
       tenant: selectedTenant,
       roles,
       availableTenants,
+      enabledModules,
     };
   }
 
@@ -245,6 +258,23 @@ export class AuthService {
         slug: ut.tenant.slug,
       }));
 
+    // Extract enabled modules from tenant settings
+    let enabledModules: string[] = [...APP_MODULES];
+    if (userTenant) {
+      const settings = parseTenantSettings(userTenant.tenant.settings);
+      enabledModules = settings.enabledModules;
+    } else if (hasGlobalRole) {
+      // Global user browsing a tenant they're not assigned to — query directly
+      const tenantRecord = await this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { settings: true },
+      });
+      if (tenantRecord) {
+        const settings = parseTenantSettings(tenantRecord.settings);
+        enabledModules = settings.enabledModules;
+      }
+    }
+
     return {
       ...tokens,
       user: {
@@ -257,6 +287,7 @@ export class AuthService {
       tenant,
       roles,
       availableTenants,
+      enabledModules,
     };
   }
 

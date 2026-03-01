@@ -3,6 +3,7 @@ import { Reflector } from '@nestjs/core';
 import { PERMISSIONS_KEY, RequiredPermission } from '../decorators/permissions.decorator';
 import { RequestUser } from '../decorators/current-user.decorator';
 import { PrismaService } from '../prisma.service';
+import { parseTenantSettings, isModuleEnabled } from '@casdex/shared';
 
 @Injectable()
 export class PermissionsGuard implements CanActivate {
@@ -27,6 +28,24 @@ export class PermissionsGuard implements CanActivate {
     // Global admins bypass permission checks (GOD mode)
     if (user.globalRole === 'global_admin') {
       return true;
+    }
+
+    // Check if the required modules are enabled for this tenant
+    if (user.tenantId && user.tenantId !== 'global') {
+      const tenant = await this.prisma.tenant.findUnique({
+        where: { id: user.tenantId },
+        select: { settings: true },
+      });
+
+      if (tenant) {
+        const settings = parseTenantSettings(tenant.settings);
+        const allModulesEnabled = requiredPermissions.every((p) =>
+          isModuleEnabled(settings, p.module),
+        );
+        if (!allModulesEnabled) {
+          return false;
+        }
+      }
     }
 
     // Global managers bypass permission checks for management module

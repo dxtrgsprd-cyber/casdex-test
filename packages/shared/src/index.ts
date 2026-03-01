@@ -99,10 +99,39 @@ export const APP_MODULES = [
   'survey',
   'design',
   'projects',
+  'vendors',
+  'subcontractors',
   'tools',
   'management',
 ] as const;
 export type AppModule = (typeof APP_MODULES)[number];
+
+// --- Tenant Settings (stored in Tenant.settings JSON field) ---
+export interface TenantSettings {
+  enabledModules: AppModule[];
+}
+
+export const DEFAULT_TENANT_SETTINGS: TenantSettings = {
+  enabledModules: [...APP_MODULES],
+};
+
+export function parseTenantSettings(raw: unknown): TenantSettings {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+    if (Array.isArray(obj.enabledModules)) {
+      const valid = obj.enabledModules.filter(
+        (m): m is AppModule =>
+          typeof m === 'string' && (APP_MODULES as readonly string[]).includes(m),
+      );
+      return { enabledModules: valid };
+    }
+  }
+  return { ...DEFAULT_TENANT_SETTINGS };
+}
+
+export function isModuleEnabled(settings: TenantSettings, module: string): boolean {
+  return settings.enabledModules.includes(module as AppModule);
+}
 
 // --- OPP Status ---
 export const OPP_STATUSES = [
