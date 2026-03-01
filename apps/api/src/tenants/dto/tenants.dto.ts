@@ -1,4 +1,5 @@
-import { IsNotEmpty, IsOptional, IsString, IsBoolean } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, IsBoolean, IsArray, IsIn } from 'class-validator';
+import { APP_MODULES } from '@casdex/shared';
 
 export class CreateTenantDto {
   @IsString()
@@ -18,4 +19,10 @@ export class UpdateTenantDto {
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
+
+  @IsArray()
+  @IsOptional()
+  @IsString({ each: true })
+  @IsIn([...APP_MODULES], { each: true })
+  enabledModules?: string[];
 }

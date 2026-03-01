@@ -4,12 +4,12 @@ import { hash } from 'bcryptjs';
 const prisma = new PrismaClient();
 
 const DEFAULT_ROLES = [
-  { name: 'admin', displayName: 'Admin' },
-  { name: 'manager', displayName: 'Manager' },
+  { name: 'org_admin', displayName: 'Org Admin' },
+  { name: 'org_manager', displayName: 'Org Manager' },
   { name: 'sales', displayName: 'Sales' },
   { name: 'presales', displayName: 'Presales' },
   { name: 'project_manager', displayName: 'Project Manager' },
-  { name: 'field_technician', displayName: 'Field Technician' },
+  { name: 'installer', displayName: 'Installer' },
   { name: 'subcontractor', displayName: 'Subcontractor' },
   { name: 'customer', displayName: 'Customer' },
 ];
@@ -17,21 +17,25 @@ const DEFAULT_ROLES = [
 // Default permission matrix per role per module
 // Format: { [module]: [actions] }
 const ROLE_PERMISSIONS: Record<string, Record<string, string[]>> = {
-  admin: {
+  org_admin: {
     opportunities: ['create', 'read', 'update', 'delete'],
     survey: ['create', 'read', 'update', 'delete'],
     design: ['create', 'read', 'update', 'delete'],
     projects: ['create', 'read', 'update', 'delete'],
     tools: ['create', 'read', 'update', 'delete'],
     management: ['create', 'read', 'update', 'delete'],
+    vendors: ['create', 'read', 'update', 'delete'],
+    subcontractors: ['create', 'read', 'update', 'delete'],
   },
-  manager: {
+  org_manager: {
     opportunities: ['create', 'read', 'update', 'delete'],
     survey: ['create', 'read', 'update', 'delete'],
     design: ['create', 'read', 'update', 'delete'],
     projects: ['create', 'read', 'update', 'delete'],
     tools: ['read'],
     management: ['create', 'read', 'update', 'delete'],
+    vendors: ['create', 'read', 'update', 'delete'],
+    subcontractors: ['create', 'read', 'update', 'delete'],
   },
   sales: {
     opportunities: ['create', 'read', 'update'],
@@ -40,6 +44,8 @@ const ROLE_PERMISSIONS: Record<string, Record<string, string[]>> = {
     projects: ['read'],
     tools: ['read'],
     management: ['read'],
+    vendors: ['read'],
+    subcontractors: ['read'],
   },
   presales: {
     opportunities: ['create', 'read', 'update'],
@@ -48,6 +54,8 @@ const ROLE_PERMISSIONS: Record<string, Record<string, string[]>> = {
     projects: ['read', 'update'],
     tools: ['read'],
     management: ['read'],
+    vendors: ['read'],
+    subcontractors: ['read'],
   },
   project_manager: {
     opportunities: ['read', 'update'],
@@ -56,14 +64,18 @@ const ROLE_PERMISSIONS: Record<string, Record<string, string[]>> = {
     projects: ['create', 'read', 'update'],
     tools: ['read'],
     management: ['read'],
+    vendors: ['read'],
+    subcontractors: ['read'],
   },
-  field_technician: {
+  installer: {
     opportunities: ['read'],
     survey: ['read'],
     design: ['read'],
     projects: ['read', 'update'],
     tools: ['read'],
     management: ['read'],
+    vendors: ['read'],
+    subcontractors: ['read'],
   },
   subcontractor: {
     opportunities: ['read'],
@@ -72,6 +84,8 @@ const ROLE_PERMISSIONS: Record<string, Record<string, string[]>> = {
     projects: ['read', 'update'],
     tools: [],
     management: [],
+    vendors: [],
+    subcontractors: [],
   },
   customer: {
     opportunities: ['read'],
@@ -80,6 +94,8 @@ const ROLE_PERMISSIONS: Record<string, Record<string, string[]>> = {
     projects: ['read'],
     tools: [],
     management: [],
+    vendors: [],
+    subcontractors: [],
   },
 };
 
@@ -132,7 +148,7 @@ async function main() {
     console.log(`Created role: ${roleDef.displayName} with permissions`);
   }
 
-  // Create global admin user
+  // Create global admin user (main account)
   const adminPasswordHash = await hash('admin123', 12);
   const adminUser = await prisma.user.upsert({
     where: { email: 'admin@casdex.local' },
@@ -142,29 +158,46 @@ async function main() {
       passwordHash: adminPasswordHash,
       firstName: 'System',
       lastName: 'Admin',
-      isGlobalAdmin: true,
+      globalRole: 'global_admin',
       isActive: true,
     },
   });
 
-  // Assign admin role in default tenant
-  const adminRole = await prisma.role.findUnique({
-    where: { tenantId_name: { tenantId: defaultTenant.id, name: 'admin' } },
+  // Assign org_admin role in default tenant
+  const orgAdminRole = await prisma.role.findUnique({
+    where: { tenantId_name: { tenantId: defaultTenant.id, name: 'org_admin' } },
   });
 
-  if (adminRole) {
+  if (orgAdminRole) {
     await prisma.userTenant.upsert({
       where: { userId_tenantId: { userId: adminUser.id, tenantId: defaultTenant.id } },
       update: {},
       create: {
         userId: adminUser.id,
         tenantId: defaultTenant.id,
-        roleId: adminRole.id,
+        roleId: orgAdminRole.id,
       },
     });
   }
 
-  console.log(`Created admin user: ${adminUser.email}`);
+  console.log(`Created global admin user: ${adminUser.email}`);
+
+  // Create global admin backup user
+  const backupPasswordHash = await hash('backup123', 12);
+  const backupUser = await prisma.user.upsert({
+    where: { email: 'backup-admin@casdex.local' },
+    update: {},
+    create: {
+      email: 'backup-admin@casdex.local',
+      passwordHash: backupPasswordHash,
+      firstName: 'Backup',
+      lastName: 'Admin',
+      globalRole: 'global_admin',
+      isActive: true,
+    },
+  });
+
+  console.log(`Created backup admin user: ${backupUser.email}`);
   console.log('Seed complete.');
 }
 

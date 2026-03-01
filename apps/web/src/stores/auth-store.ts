@@ -8,7 +8,7 @@ interface AuthUser {
   email: string;
   firstName: string;
   lastName: string;
-  isGlobalAdmin: boolean;
+  globalRole: string | null; // 'global_admin' | 'global_manager' | null
 }
 
 interface AuthTenant {
@@ -21,6 +21,7 @@ interface AuthState {
   user: AuthUser | null;
   tenant: AuthTenant | null;
   roles: string[];
+  enabledModules: string[];
   availableTenants: AuthTenant[];
   accessToken: string | null;
   refreshToken: string | null;
@@ -35,6 +36,26 @@ interface AuthState {
 }
 
 const STORAGE_KEY = 'casdex_auth';
+const LAST_TENANT_KEY = 'casdex_last_tenant';
+
+function saveLastTenant(email: string, tenantId: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    const stored = JSON.parse(localStorage.getItem(LAST_TENANT_KEY) || '{}');
+    stored[email] = tenantId;
+    localStorage.setItem(LAST_TENANT_KEY, JSON.stringify(stored));
+  } catch { /* ignore */ }
+}
+
+function getLastTenant(email: string): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const stored = JSON.parse(localStorage.getItem(LAST_TENANT_KEY) || '{}');
+    return stored[email] || null;
+  } catch {
+    return null;
+  }
+}
 
 function saveToStorage(data: {
   accessToken: string;
@@ -42,6 +63,7 @@ function saveToStorage(data: {
   user: AuthUser;
   tenant: AuthTenant;
   roles: string[];
+  enabledModules: string[];
   availableTenants: AuthTenant[];
 }) {
   if (typeof window !== 'undefined') {
@@ -70,6 +92,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   tenant: null,
   roles: [],
+  enabledModules: [],
   availableTenants: [],
   accessToken: null,
   refreshToken: null,
@@ -79,7 +102,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   login: async (email, password, tenantId) => {
     set({ isLoading: true });
     try {
-      const response = await authApi.login(email, password, tenantId);
+      // Try with the provided tenantId (or last-used tenant)
+      const effectiveTenantId = tenantId || getLastTenant(email) || undefined;
+      let response;
+      try {
+        response = await authApi.login(email, password, effectiveTenantId);
+      } catch (err) {
+        // If the remembered tenant is no longer accessible, retry without it
+        if (effectiveTenantId && err instanceof Error && err.message.includes('do not have access')) {
+          response = await authApi.login(email, password);
+        } else {
+          throw err;
+        }
+      }
       const { data } = response;
 
       const authData = {
@@ -88,10 +123,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         user: data.user,
         tenant: data.tenant,
         roles: data.roles,
+        enabledModules: data.enabledModules || [],
         availableTenants: data.availableTenants,
       };
 
       saveToStorage(authData);
+      saveLastTenant(email, data.tenant.id);
 
       set({
         ...authData,
@@ -118,6 +155,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       user: null,
       tenant: null,
       roles: [],
+      enabledModules: [],
       availableTenants: [],
       accessToken: null,
       refreshToken: null,
@@ -140,10 +178,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         user: data.user,
         tenant: data.tenant,
         roles: data.roles,
+        enabledModules: data.enabledModules || [],
         availableTenants: data.availableTenants,
       };
 
       saveToStorage(authData);
+      if (data.user?.email) {
+        saveLastTenant(data.user.email, data.tenant.id);
+      }
 
       set({
         ...authData,

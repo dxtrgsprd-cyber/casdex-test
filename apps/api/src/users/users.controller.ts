@@ -13,7 +13,7 @@ import {
 } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { CreateUserDto, UpdateUserDto, UpdateUserRoleDto, UpdateProfileDto, ListUsersByTenantDto } from './dto/users.dto';
-import { CurrentUser, RequestUser } from '../common/decorators/current-user.decorator';
+import { CurrentUser, RequestUser, isGlobalAdmin } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
@@ -40,12 +40,11 @@ export class UsersController {
     return { success: true, data: profile };
   }
 
-  // --- User management (admin/manager) ---
-
+  // --- User management ---
 
   @Post('by-tenant/:tenantId')
   @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('global_admin', 'admin')
+  @Roles('global_admin', 'global_manager', 'org_admin')
   @RequirePermissions({ module: 'management', action: 'read' })
   async listUsersByTenant(
     @Param('tenantId') tenantId: string,
@@ -91,7 +90,7 @@ export class UsersController {
 
   @Post()
   @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('admin', 'manager')
+  @Roles('org_admin', 'org_manager')
   @RequirePermissions({ module: 'management', action: 'create' })
   async createUser(
     @Body() dto: CreateUserDto,
@@ -105,7 +104,7 @@ export class UsersController {
 
   @Put(':id')
   @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('admin', 'manager')
+  @Roles('org_admin', 'org_manager')
   @RequirePermissions({ module: 'management', action: 'update' })
   async updateUser(
     @Param('id') id: string,
@@ -118,7 +117,7 @@ export class UsersController {
 
   @Put(':id/role')
   @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('admin', 'manager')
+  @Roles('org_admin', 'org_manager')
   @RequirePermissions({ module: 'management', action: 'update' })
   async updateUserRole(
     @Param('id') id: string,
@@ -131,7 +130,7 @@ export class UsersController {
 
   @Delete(':id')
   @UseGuards(RolesGuard, PermissionsGuard)
-  @Roles('admin', 'manager')
+  @Roles('org_admin', 'org_manager')
   @RequirePermissions({ module: 'management', action: 'delete' })
   async deleteUser(
     @Param('id') id: string,

@@ -5,7 +5,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth-store';
 import { tenantsApi, usersApi, Tenant, UserListItem } from '@/lib/api';
 
-const TABS = ['General', 'Users', 'Roles'] as const;
+const TABS = ['General', 'Users', 'Roles', 'Modules'] as const;
 type Tab = (typeof TABS)[number];
 
 export default function TenantDetailPage() {
@@ -17,7 +17,10 @@ export default function TenantDetailPage() {
 
   const initialTab = searchParams.get('tab');
   const [activeTab, setActiveTab] = useState<Tab>(
-    initialTab === 'users' ? 'Users' : initialTab === 'roles' ? 'Roles' : 'General',
+    initialTab === 'users' ? 'Users'
+      : initialTab === 'roles' ? 'Roles'
+      : initialTab === 'modules' ? 'Modules'
+      : 'General',
   );
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [loading, setLoading] = useState(true);
@@ -99,6 +102,9 @@ export default function TenantDetailPage() {
           )}
           {activeTab === 'Roles' && (
             <RolesTab tenant={tenant} />
+          )}
+          {activeTab === 'Modules' && (
+            <ModulesTab tenant={tenant} onUpdate={loadTenant} />
           )}
         </div>
       </div>
@@ -575,6 +581,125 @@ function RolesTab({ tenant }: { tenant: Tenant }) {
           <p className="text-sm text-gray-500">No roles configured</p>
         </div>
       )}
+    </div>
+  );
+}
+
+// --- Modules Tab ---
+
+const ALL_MODULES = [
+  { key: 'opportunities', label: 'Opportunities', description: 'Sales pipeline and OPP tracking' },
+  { key: 'survey', label: 'Survey', description: 'Site surveys and field data collection' },
+  { key: 'design', label: 'Design', description: 'System design and device placement' },
+  { key: 'projects', label: 'Projects', description: 'Project lifecycle management' },
+  { key: 'vendors', label: 'Vendors', description: 'Vendor contacts and management' },
+  { key: 'subcontractors', label: 'Subcontractors', description: 'Subcontractor management' },
+  { key: 'tools', label: 'Tools', description: 'Calculators, device library, compliance tools' },
+  { key: 'management', label: 'Management', description: 'User profile, org settings, roles' },
+];
+
+function ModulesTab({
+  tenant,
+  onUpdate,
+}: {
+  tenant: Tenant;
+  onUpdate: () => void;
+}) {
+  const { accessToken } = useAuthStore();
+
+  const currentEnabled: string[] =
+    (tenant.settings as Record<string, unknown> | undefined)?.enabledModules as string[] ||
+    ALL_MODULES.map((m) => m.key);
+
+  const [enabledModules, setEnabledModules] = useState<string[]>(currentEnabled);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  function toggleModule(moduleKey: string) {
+    setEnabledModules((prev) =>
+      prev.includes(moduleKey)
+        ? prev.filter((m) => m !== moduleKey)
+        : [...prev, moduleKey],
+    );
+    setSuccess('');
+  }
+
+  async function handleSave() {
+    if (!accessToken) return;
+    setError('');
+    setSuccess('');
+    setSaving(true);
+    try {
+      await tenantsApi.update(accessToken, tenant.id, { enabledModules });
+      setSuccess('Module settings saved');
+      onUpdate();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save');
+    }
+    setSaving(false);
+  }
+
+  const hasChanges = JSON.stringify([...enabledModules].sort()) !==
+    JSON.stringify([...currentEnabled].sort());
+
+  return (
+    <div>
+      <h2 className="text-lg font-semibold text-gray-900 mb-1">Modules</h2>
+      <p className="text-sm text-gray-500 mb-4">
+        Enable or disable modules for this organization. Disabled modules will be hidden
+        from navigation and API access will be denied.
+      </p>
+
+      <div className="card p-6 max-w-lg space-y-3">
+        {ALL_MODULES.map((mod) => {
+          const isEnabled = enabledModules.includes(mod.key);
+          return (
+            <div
+              key={mod.key}
+              className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0"
+            >
+              <div>
+                <p className="text-sm font-medium text-gray-900">{mod.label}</p>
+                <p className="text-xs text-gray-500">{mod.description}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => toggleModule(mod.key)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  isEnabled ? 'bg-primary-600' : 'bg-gray-200'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    isEnabled ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+          );
+        })}
+
+        {error && (
+          <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+            {error}
+          </div>
+        )}
+
+        {success && (
+          <div className="text-sm text-green-600 bg-green-50 border border-green-200 rounded-md px-3 py-2">
+            {success}
+          </div>
+        )}
+
+        <button
+          onClick={handleSave}
+          disabled={saving || !hasChanges}
+          className="btn-primary"
+        >
+          {saving ? 'Saving...' : 'Save Changes'}
+        </button>
+      </div>
     </div>
   );
 }

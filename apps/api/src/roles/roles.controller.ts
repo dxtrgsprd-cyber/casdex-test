@@ -39,7 +39,7 @@ export class RolesController {
   }
 
   @Post()
-  @Roles('admin', 'manager')
+  @Roles('org_admin', 'org_manager')
   @RequirePermissions({ module: 'management', action: 'create' })
   async createRole(
     @Body() dto: CreateRoleDto,
@@ -50,7 +50,7 @@ export class RolesController {
   }
 
   @Put(':id')
-  @Roles('admin', 'manager')
+  @Roles('org_admin', 'org_manager')
   @RequirePermissions({ module: 'management', action: 'update' })
   async updateRole(
     @Param('id') id: string,
@@ -62,7 +62,7 @@ export class RolesController {
   }
 
   @Delete(':id')
-  @Roles('admin', 'manager')
+  @Roles('org_admin', 'org_manager')
   @RequirePermissions({ module: 'management', action: 'delete' })
   async deleteRole(
     @Param('id') id: string,

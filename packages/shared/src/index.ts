@@ -12,6 +12,13 @@ export interface Tenant {
   updatedAt: Date;
 }
 
+// --- Global Roles (platform-wide, stored on User.globalRole) ---
+export const GLOBAL_ROLES = ['global_admin', 'global_manager'] as const;
+export type GlobalRole = (typeof GLOBAL_ROLES)[number];
+
+// Max global_admin accounts allowed (main + backup)
+export const MAX_GLOBAL_ADMINS = 2;
+
 // --- Auth ---
 export interface AuthTokens {
   accessToken: string;
@@ -23,6 +30,7 @@ export interface JwtPayload {
   email: string;
   tenantId: string;
   roles: string[];
+  globalRole: GlobalRole | null; // 'global_admin' | 'global_manager' | null
   iat?: number;
   exp?: number;
 }
@@ -47,19 +55,23 @@ export interface UserTenantRole {
   roleName: string;
 }
 
-// --- Roles ---
-export const DEFAULT_ROLES = [
-  'admin',
-  'manager',
+// --- Organization Roles (per-tenant, stored in Role table) ---
+export const DEFAULT_ORG_ROLES = [
+  'org_admin',
+  'org_manager',
   'sales',
   'presales',
   'project_manager',
-  'field_technician',
+  'installer',
   'subcontractor',
   'customer',
 ] as const;
 
-export type DefaultRole = (typeof DEFAULT_ROLES)[number];
+export type DefaultOrgRole = (typeof DEFAULT_ORG_ROLES)[number];
+
+// Backward-compat alias
+export const DEFAULT_ROLES = DEFAULT_ORG_ROLES;
+export type DefaultRole = DefaultOrgRole;
 
 // --- Permissions ---
 export const PERMISSION_ACTIONS = ['create', 'read', 'update', 'delete'] as const;
@@ -87,10 +99,39 @@ export const APP_MODULES = [
   'survey',
   'design',
   'projects',
+  'vendors',
+  'subcontractors',
   'tools',
   'management',
 ] as const;
 export type AppModule = (typeof APP_MODULES)[number];
+
+// --- Tenant Settings (stored in Tenant.settings JSON field) ---
+export interface TenantSettings {
+  enabledModules: AppModule[];
+}
+
+export const DEFAULT_TENANT_SETTINGS: TenantSettings = {
+  enabledModules: [...APP_MODULES],
+};
+
+export function parseTenantSettings(raw: unknown): TenantSettings {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+    if (Array.isArray(obj.enabledModules)) {
+      const valid = obj.enabledModules.filter(
+        (m): m is AppModule =>
+          typeof m === 'string' && (APP_MODULES as readonly string[]).includes(m),
+      );
+      return { enabledModules: valid };
+    }
+  }
+  return { ...DEFAULT_TENANT_SETTINGS };
+}
+
+export function isModuleEnabled(settings: TenantSettings, module: string): boolean {
+  return settings.enabledModules.includes(module as AppModule);
+}
 
 // --- OPP Status ---
 export const OPP_STATUSES = [

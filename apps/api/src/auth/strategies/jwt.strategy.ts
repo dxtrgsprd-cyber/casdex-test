@@ -9,7 +9,7 @@ interface JwtPayload {
   email: string;
   tenantId: string;
   roles: string[];
-  isGlobalAdmin: boolean;
+  globalRole: string | null;
 }
 
 @Injectable()
@@ -25,7 +25,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   async validate(payload: JwtPayload): Promise<RequestUser> {
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
-      select: { id: true, isActive: true, isGlobalAdmin: true },
+      select: { id: true, isActive: true, globalRole: true },
     });
 
     if (!user || !user.isActive) {
@@ -37,7 +37,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       email: payload.email,
       tenantId: payload.tenantId,
       roles: payload.roles,
-      isGlobalAdmin: payload.isGlobalAdmin,
+      globalRole: payload.globalRole,
     };
   }
 }

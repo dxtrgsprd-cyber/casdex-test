@@ -1,0 +1,2769 @@
+'use client';
+
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { useRouter, useParams } from 'next/navigation';
+import { useAuthStore } from '@/stores/auth-store';
+import {
+  designsApi,
+  devicesApi,
+  oppsApi,
+  DesignDetail,
+  PlacedDeviceData,
+  Device,
+  Opportunity,
+  HardwareSchedule,
+  SOW,
+} from '@/lib/api';
+import {
+  POWER_SPECS as AC_POWER_SPECS,
+  CONTROLLER_BRANDS as AC_CTRL_BRANDS,
+  LOCK_BRANDS as AC_LOCK_BRANDS,
+  CONTROLLER_BRAND_MODELS as AC_CTRL_MODELS,
+  DOOR_TYPES as AC_DOOR_TYPES,
+  LOCK_TYPES as AC_LOCK_TYPES,
+  REX_TYPES as AC_REX_TYPES,
+  STATE_KEYS as AC_STATE_KEYS,
+  STATE_JURISDICTIONS,
+  calculateBuild,
+  runComplianceAudit,
+  type DoorConfig,
+  type BuildResult,
+  type AuditResult,
+} from '@/lib/access-control-rules';
+
+const STATUS_LABELS: Record<string, string> = {
+  draft: 'Draft',
+  in_progress: 'In Progress',
+  completed: 'Completed',
+  exported: 'Exported',
+};
+
+const STATUS_COLORS: Record<string, string> = {
+  draft: 'bg-gray-100 text-gray-700',
+  in_progress: 'bg-blue-100 text-blue-700',
+  completed: 'bg-green-100 text-green-700',
+  exported: 'bg-purple-100 text-purple-700',
+};
+
+const NEXT_STATUS: Record<string, { label: string; status: string } | null> = {
+  draft: { label: 'Start Work', status: 'in_progress' },
+  in_progress: { label: 'Mark Complete', status: 'completed' },
+  completed: { label: 'Mark Exported', status: 'exported' },
+  exported: null,
+};
+
+const CATEGORY_LABELS: Record<string, string> = {
+  camera: 'Camera',
+  access_control: 'Access Control',
+  av_intercom: 'Video Intercom (ACS)',
+  vape_environmental: 'Vape / Environmental',
+  networking: 'Networking',
+  av: 'Audio / Video',
+  sensor: 'Sensor',
+  mount: 'Mount',
+  accessory: 'Accessory',
+};
+
+const RISK_COLORS: Record<string, string> = {
+  low: 'text-green-700 bg-green-100',
+  medium: 'text-amber-700 bg-amber-100',
+  high: 'text-red-700 bg-red-100',
+  critical: 'text-red-900 bg-red-200',
+};
+
+// ============================================================
+// Design Layer System
+// Each system type is a layer that can be toggled on/off on the
+// canvas. Tabs switch between system types for device management.
+// ============================================================
+
+type SystemTab = 'cctv' | 'access-control' | 'vape-environmental' | 'network' | 'av' | 'other';
+type ExportTab = 'hardware-schedule' | 'sow';
+type UtilityTab = 'tools';
+type TabType = SystemTab | ExportTab | UtilityTab;
+
+interface DesignLayer {
+  key: SystemTab;
+  label: string;
+  shortLabel: string;
+  color: string;
+  bgColor: string;
+  borderColor: string;
+  dotColor: string;
+  categories: string[];  // device categories that belong to this layer
+}
+
+const DESIGN_LAYERS: DesignLayer[] = [
+  {
+    key: 'cctv',
+    label: 'CCTV',
+    shortLabel: 'CCTV',
+    color: 'text-purple-700',
+    bgColor: 'bg-purple-50',
+    borderColor: 'border-purple-300',
+    dotColor: 'bg-purple-500',
+    categories: ['camera'],
+  },
+  {
+    key: 'access-control',
+    label: 'Access Control',
+    shortLabel: 'ACS',
+    color: 'text-amber-700',
+    bgColor: 'bg-amber-50',
+    borderColor: 'border-amber-300',
+    dotColor: 'bg-amber-500',
+    categories: ['access_control', 'av_intercom'],
+  },
+  {
+    key: 'vape-environmental',
+    label: 'Vape / Environmental Detectors',
+    shortLabel: 'Vape/Env',
+    color: 'text-teal-700',
+    bgColor: 'bg-teal-50',
+    borderColor: 'border-teal-300',
+    dotColor: 'bg-teal-500',
+    categories: ['vape_environmental', 'sensor'],
+  },
+  {
+    key: 'network',
+    label: 'Network',
+    shortLabel: 'Network',
+    color: 'text-blue-700',
+    bgColor: 'bg-blue-50',
+    borderColor: 'border-blue-300',
+    dotColor: 'bg-blue-500',
+    categories: ['networking'],
+  },
+  {
+    key: 'av',
+    label: 'Audio / Video',
+    shortLabel: 'AV',
+    color: 'text-rose-700',
+    bgColor: 'bg-rose-50',
+    borderColor: 'border-rose-300',
+    dotColor: 'bg-rose-500',
+    categories: ['av'],
+  },
+  {
+    key: 'other',
+    label: 'Other',
+    shortLabel: 'Other',
+    color: 'text-gray-700',
+    bgColor: 'bg-gray-50',
+    borderColor: 'border-gray-300',
+    dotColor: 'bg-gray-500',
+    categories: ['mount', 'accessory'],
+  },
+];
+
+// Video intercoms belong to Access Control, not AV
+const VIDEO_INTERCOM_KEYWORDS = ['intercom', 'ix-dv', 'ixg-dm', 'td52'];
+
+function isVideoIntercom(pd: PlacedDeviceData): boolean {
+  const model = (pd.device?.model || '').toLowerCase();
+  const desc = (pd.device?.description || '').toLowerCase();
+  return VIDEO_INTERCOM_KEYWORDS.some((kw) => model.includes(kw) || desc.includes(kw));
+}
+
+function getEffectiveCategory(pd: PlacedDeviceData): string {
+  const cat = pd.device?.category || '';
+  // Route video intercoms from AV to access control
+  if (cat === 'av' && isVideoIntercom(pd)) return 'av_intercom';
+  return cat;
+}
+
+function getLayerForCategory(category: string): DesignLayer | undefined {
+  return DESIGN_LAYERS.find((l) => l.categories.includes(category));
+}
+
+function getLayerForDevice(pd: PlacedDeviceData): DesignLayer | undefined {
+  return getLayerForCategory(getEffectiveCategory(pd));
+}
+
+function getDevicesForLayer(devices: PlacedDeviceData[], layerKey: SystemTab): PlacedDeviceData[] {
+  const layer = DESIGN_LAYERS.find((l) => l.key === layerKey);
+  if (!layer) return [];
+  return devices.filter((pd) => layer.categories.includes(getEffectiveCategory(pd)));
+}
+
+function getVisibleDevices(devices: PlacedDeviceData[], visibleLayers: Set<string>): PlacedDeviceData[] {
+  return devices.filter((pd) => {
+    const layer = getLayerForDevice(pd);
+    return layer ? visibleLayers.has(layer.key) : visibleLayers.has('other');
+  });
+}
+
+// ============================================================
+// Door Config Storage (saved with design, linked to opportunity)
+// ============================================================
+
+const DOOR_CONFIGS_KEY = 'casdex_door_configs';
+
+function loadDoorConfigs(designId: string): DoorConfig[] {
+  try {
+    const raw = localStorage.getItem(`${DOOR_CONFIGS_KEY}_${designId}`);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveDoorConfigs(designId: string, configs: DoorConfig[]): void {
+  localStorage.setItem(`${DOOR_CONFIGS_KEY}_${designId}`, JSON.stringify(configs));
+}
+
+function generateDoorId(): string {
+  return `door_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// ============================================================
+// FOV Analysis (embedded from FOV Calculator engine)
+// ============================================================
+
+interface FovSensorSpec { resW: number; resH: number; sW: number; sH: number; }
+const DESIGN_FOV_DB: Record<string, Record<string, FovSensorSpec>> = {
+  Hanwha: {
+    'PNM-C12083RVD': { resW: 3328, resH: 1872, sW: 5.1, sH: 2.9 },
+    'XND-8082RV': { resW: 3072, resH: 1728, sW: 5.1, sH: 2.9 },
+    'XNO-9083R': { resW: 3840, resH: 2160, sW: 5.8, sH: 3.2 },
+    'XND-6083RV': { resW: 2048, resH: 1536, sW: 4.8, sH: 3.6 },
+    'XNV-8082R': { resW: 3072, resH: 1728, sW: 5.1, sH: 2.9 },
+    'PNM-9322VQP': { resW: 2560, resH: 1440, sW: 5.1, sH: 2.9 },
+  },
+  Axis: {
+    'P3268-LVE': { resW: 3840, resH: 2160, sW: 5.8, sH: 3.2 },
+    'Q1656': { resW: 2688, resH: 1512, sW: 5.3, sH: 3.0 },
+    'M3116-LVE': { resW: 2688, resH: 1512, sW: 5.3, sH: 3.0 },
+    'P3265-LVE': { resW: 1920, resH: 1080, sW: 4.8, sH: 2.7 },
+    'Q6135-LE': { resW: 1920, resH: 1080, sW: 4.8, sH: 2.7 },
+  },
+};
+const DEFAULT_SENSOR: FovSensorSpec = { resW: 3072, resH: 1728, sW: 5.1, sH: 2.9 };
+const PPF_OPTIONS = [
+  { value: 76, label: 'Identification (76 PPF)' },
+  { value: 38, label: 'Recognition (38 PPF)' },
+  { value: 19, label: 'Observation (19 PPF)' },
+  { value: 10, label: 'Detection (10 PPF)' },
+];
+function calcFovAnalysis(sensor: FovSensorSpec, heightFt: number, distFt: number, ppf: number) {
+  const slope = Math.sqrt(heightFt * heightFt + distFt * distFt);
+  const reqWidth = sensor.resW / ppf;
+  const focal = (sensor.sW * slope) / reqWidth;
+  const tiltDeg = Math.atan(heightFt / distFt) * (180 / Math.PI);
+  const vfov = 2 * Math.atan(sensor.sH / (2 * focal)) * (180 / Math.PI);
+  const hfov = 2 * Math.atan(sensor.sW / (2 * focal)) * (180 / Math.PI);
+  const lowerEdge = tiltDeg + vfov / 2;
+  const blindSpot = lowerEdge < 90 ? heightFt / Math.tan(lowerEdge * Math.PI / 180) : 0;
+  const quality = tiltDeg <= 30 ? 'OPTIMAL' : 'OVERVIEW';
+  return { focal, tiltDeg, hfov, vfov, blindSpot, quality, slope };
+}
+
+// ============================================================
+// Mount BOM (embedded from Mounting Calculator engine)
+// ============================================================
+
+type MountLocation = 'Wall' | 'Corner' | 'Pole' | 'Flush';
+interface MountBomLine { component: string; partBase: string; desc: string; }
+interface MfrMountDb { generic: Record<string, MountBomLine[]>; models: Record<string, Record<string, MountBomLine[]>>; suffix: Record<string, string>; }
+const DESIGN_MOUNT_DB: Record<string, MfrMountDb> = {
+  Hanwha: {
+    generic: {
+      Wall: [{ component: 'Adapter', partBase: 'SBP-300WM', desc: 'Wall Mount' }, { component: 'Bracket', partBase: 'SBP-300NB', desc: 'Wall Bracket' }],
+      Corner: [{ component: 'Adapter', partBase: 'SBP-300WM', desc: 'Wall Mount' }, { component: 'Bracket', partBase: 'SBP-300NC', desc: 'Corner Bracket' }],
+      Pole: [{ component: 'Adapter', partBase: 'SBP-300WM', desc: 'Wall Mount' }, { component: 'Bracket', partBase: 'SBP-300NP', desc: 'Pole Bracket' }],
+      Flush: [{ component: 'Adapter', partBase: 'SBP-300CM', desc: 'Flush Mount' }],
+    },
+    models: {
+      'PNM-C12083RVD': {
+        Wall: [{ component: 'Adapter', partBase: 'SBP-300WM', desc: 'Wall Mount' }, { component: 'Bracket', partBase: 'SBP-302CM', desc: 'Multi-Sensor Bracket' }],
+      },
+    },
+    suffix: { White: 'W1', Black: 'B1' },
+  },
+  Axis: {
+    generic: {
+      Wall: [{ component: 'Adapter', partBase: 'T91B61', desc: 'Wall Bracket' }, { component: 'Bracket', partBase: 'T94N01D', desc: 'Pendant Kit' }],
+      Corner: [{ component: 'Adapter', partBase: 'T91B61', desc: 'Wall Bracket' }, { component: 'Bracket', partBase: 'T94N01D', desc: 'Pendant Kit' }, { component: 'Corner', partBase: 'T91A67', desc: 'Corner Bracket' }],
+      Pole: [{ component: 'Adapter', partBase: 'T91B61', desc: 'Wall Bracket' }, { component: 'Bracket', partBase: 'T91A47', desc: 'Pole Adapter' }],
+      Flush: [{ component: 'Adapter', partBase: 'T94F01S', desc: 'Flush Mount' }],
+    },
+    models: {},
+    suffix: { White: ' White', Black: ' Black' },
+  },
+};
+function getMountBom(manufacturer: string, model: string, location: MountLocation): { component: string; partNumber: string; desc: string }[] {
+  const db = DESIGN_MOUNT_DB[manufacturer];
+  if (!db) return [];
+  const entries = db.models[model]?.[location] || db.generic[location];
+  if (!entries) return [];
+  const sfx = db.suffix['White'] || '';
+  return entries.map((e) => ({ component: e.component, partNumber: e.partBase + sfx, desc: e.desc }));
+}
+
+export default function DesignDetailPage() {
+  const router = useRouter();
+  const params = useParams();
+  const designId = params.id as string;
+  const { accessToken, roles } = useAuthStore();
+
+  const [design, setDesign] = useState<DesignDetail | null>(null);
+  const [opp, setOpp] = useState<Opportunity | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<TabType>('cctv');
+  const [visibleLayers, setVisibleLayers] = useState<Set<string>>(
+    () => new Set(DESIGN_LAYERS.map((l) => l.key))
+  );
+
+  function toggleLayer(layerKey: string) {
+    setVisibleLayers((prev) => {
+      const next = new Set(prev);
+      if (next.has(layerKey)) next.delete(layerKey);
+      else next.add(layerKey);
+      return next;
+    });
+  }
+
+  function showAllLayers() {
+    setVisibleLayers(new Set(DESIGN_LAYERS.map((l) => l.key)));
+  }
+
+  function showOnlyLayer(layerKey: string) {
+    setVisibleLayers(new Set([layerKey]));
+  }
+
+  const canManage = roles.includes('admin') || roles.includes('manager') || roles.includes('presales');
+
+  const loadDesign = useCallback(async () => {
+    if (!accessToken || !designId) return;
+    setLoading(true);
+    try {
+      const res = await designsApi.get(accessToken, designId);
+      setDesign(res.data);
+      if (res.data.oppId) {
+        try {
+          const oppRes = await oppsApi.get(accessToken, res.data.oppId);
+          setOpp(oppRes.data);
+        } catch {
+          setOpp(null);
+        }
+      }
+    } catch {
+      router.push('/design');
+    } finally {
+      setLoading(false);
+    }
+  }, [accessToken, designId, router]);
+
+  useEffect(() => {
+    loadDesign();
+  }, [loadDesign]);
+
+  async function handleStatusChange(status: string) {
+    if (!accessToken || !design) return;
+    try {
+      await designsApi.changeStatus(accessToken, design.id, status);
+      loadDesign();
+    } catch {
+      // ignore
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="p-8 text-center text-sm text-gray-400">Loading design...</div>
+    );
+  }
+
+  if (!design) {
+    return (
+      <div className="p-8 text-center text-sm text-gray-500">Design not found</div>
+    );
+  }
+
+  const nextStatus = NEXT_STATUS[design.status];
+
+  // Dashboard calculations
+  const cameraCount = design.placedDevices.filter((pd) => pd.device?.category === 'camera').length;
+  const accessControlCount = design.placedDevices.filter((pd) => pd.device?.category === 'access_control').length;
+  const avCount = design.placedDevices.filter((pd) => pd.device?.category === 'av').length;
+  const vapeEnvCount = design.placedDevices.filter((pd) => pd.device?.category === 'vape_environmental' || pd.device?.category === 'sensor').length;
+  const networkCount = design.placedDevices.filter((pd) => pd.device?.category === 'networking').length;
+
+  const nonNdaaDevices = design.placedDevices.filter((pd) => pd.device && !pd.device.ndaaCompliant);
+  const allNdaaCompliant = nonNdaaDevices.length === 0 && design.placedDevices.length > 0;
+
+  const categoryGroups: Record<string, number> = {};
+  design.placedDevices.forEach((pd) => {
+    const cat = pd.device?.category || 'unknown';
+    categoryGroups[cat] = (categoryGroups[cat] || 0) + 1;
+  });
+
+  const latestRisk = opp?.riskAssessments?.[0] || null;
+
+  return (
+    <div>
+      {/* Header */}
+      <div className="mb-6">
+        <div className="flex items-center gap-2 mb-1">
+          <button
+            onClick={() => router.push('/design')}
+            className="text-sm text-gray-400 hover:text-gray-600"
+          >
+            Designs
+          </button>
+          <span className="text-gray-300">/</span>
+          <span className="text-sm font-medium text-gray-700">{design.name}</span>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">{design.name}</h1>
+            <div className="flex items-center gap-3 mt-1">
+              <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${STATUS_COLORS[design.status]}`}>
+                {STATUS_LABELS[design.status]}
+              </span>
+              <span className="text-sm text-gray-400">V{design.version}</span>
+              <span className="text-xs text-gray-400">
+                {design.placedDevices.length} devices
+              </span>
+              {!allNdaaCompliant && design.placedDevices.length > 0 && (
+                <span className="inline-flex px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
+                  {nonNdaaDevices.length} Non-NDAA Device{nonNdaaDevices.length > 1 ? 's' : ''}
+                </span>
+              )}
+              {allNdaaCompliant && (
+                <span className="inline-flex px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">
+                  NDAA Compliant
+                </span>
+              )}
+            </div>
+          </div>
+
+          {canManage && (
+            <div className="flex items-center gap-2">
+              {design.status !== 'draft' && (
+                <button
+                  onClick={() => handleStatusChange(design.status === 'in_progress' ? 'draft' : 'in_progress')}
+                  className="btn-secondary text-sm"
+                >
+                  Revert to {design.status === 'in_progress' ? 'Draft' : 'In Progress'}
+                </button>
+              )}
+              {nextStatus && (
+                <button
+                  onClick={() => handleStatusChange(nextStatus.status)}
+                  className="btn-primary text-sm"
+                >
+                  {nextStatus.label}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* OPP Header */}
+      {opp ? (
+        <div className="card p-4 mb-6">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+            <div>
+              <span className="text-xs text-gray-400 uppercase tracking-wide">OPP Number</span>
+              <p className="font-mono font-medium text-gray-900">{opp.oppNumber}</p>
+            </div>
+            <div>
+              <span className="text-xs text-gray-400 uppercase tracking-wide">Project Name</span>
+              <p className="text-gray-700">{opp.projectName}</p>
+            </div>
+            <div>
+              <span className="text-xs text-gray-400 uppercase tracking-wide">Customer</span>
+              <p className="text-gray-700">{opp.customerName}</p>
+            </div>
+            <div>
+              <span className="text-xs text-gray-400 uppercase tracking-wide">Address</span>
+              <p className="text-gray-700">
+                {opp.installAddress
+                  ? `${opp.installAddress}, ${opp.installCity || ''} ${opp.installState || ''} ${opp.installZip || ''}`
+                  : '-'}
+              </p>
+            </div>
+            <div>
+              <span className="text-xs text-gray-400 uppercase tracking-wide">POC</span>
+              <p className="text-gray-700">{opp.customerContact || '-'}</p>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="card p-3 mb-6 text-sm text-gray-400">
+          Standalone Design -- no linked opportunity
+        </div>
+      )}
+
+      {/* Dashboard Panels (3x2 grid) */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        {/* Project Requirements */}
+        <div className="card p-4">
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Project Requirements</h3>
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500">Camera Count</span>
+              <span className="font-semibold text-gray-900">{cameraCount}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500">Port Count</span>
+              <span className="font-semibold text-gray-900">{design.placedDevices.length}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500">Total Devices</span>
+              <span className="font-semibold text-gray-900">{design.placedDevices.length}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Devices by Layer */}
+        <div className="card p-4">
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">System Layers</h3>
+          {design.placedDevices.length === 0 ? (
+            <p className="text-sm text-gray-400">No devices placed</p>
+          ) : (
+            <div className="space-y-2">
+              {DESIGN_LAYERS.map((layer) => {
+                const count = getDevicesForLayer(design.placedDevices, layer.key).length;
+                if (count === 0) return null;
+                return (
+                  <div key={layer.key} className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-2 h-2 rounded-full ${layer.dotColor}`} />
+                      <span className="text-gray-500">{layer.label}</span>
+                    </div>
+                    <span className="font-semibold text-gray-900">{count}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Licenses */}
+        <div className="card p-4">
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Licenses</h3>
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500">Camera License</span>
+              <span className="font-semibold text-gray-900">{cameraCount}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500">Door License</span>
+              <span className="font-semibold text-gray-900">{accessControlCount}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500">Intercom License</span>
+              <span className="font-semibold text-gray-900">{avCount}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Hard Drive Calculation */}
+        <div className="card p-4">
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Hard Drive Calc</h3>
+          {cameraCount === 0 ? (
+            <p className="text-sm text-gray-400">No cameras placed</p>
+          ) : (
+            <HardDriveQuickCalc cameraCount={cameraCount} />
+          )}
+        </div>
+
+        {/* Survey Files */}
+        <div className="card p-4">
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Survey Files</h3>
+          {opp && opp.surveys.length > 0 ? (
+            <div className="space-y-2">
+              {opp.surveys.slice(0, 4).map((s) => (
+                <div key={s.id} className="flex items-center justify-between text-sm">
+                  <span className="text-gray-700 truncate">{s.title}</span>
+                  <span className={`inline-flex px-1.5 py-0.5 rounded text-xs font-medium ${
+                    s.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+                  }`}>
+                    {s.status}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-400">
+              {opp ? 'No surveys found' : 'Link an OPP to see surveys'}
+            </p>
+          )}
+        </div>
+
+        {/* Risk / Presales */}
+        <div className="card p-4">
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Risk / Presales</h3>
+          {latestRisk ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-500">Overall</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-gray-900">{latestRisk.overallScore.toFixed(1)}</span>
+                  <span className={`inline-flex px-1.5 py-0.5 rounded text-xs font-medium ${RISK_COLORS[latestRisk.riskLevel] || 'bg-gray-100 text-gray-600'}`}>
+                    {latestRisk.riskLevel}
+                  </span>
+                </div>
+              </div>
+              {latestRisk.cctvScore != null && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">CCTV</span>
+                  <span className="font-medium text-gray-700">{latestRisk.cctvScore.toFixed(1)}</span>
+                </div>
+              )}
+              {latestRisk.acsScore != null && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">ACS</span>
+                  <span className="font-medium text-gray-700">{latestRisk.acsScore.toFixed(1)}</span>
+                </div>
+              )}
+              {latestRisk.installScore != null && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Install</span>
+                  <span className="font-medium text-gray-700">{latestRisk.installScore.toFixed(1)}</span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-400">
+              {opp ? 'No risk assessment' : 'Link an OPP to see risk data'}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Layer Visibility Controls */}
+      <div className="card p-3 mb-4">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Layers</h3>
+          <div className="flex items-center gap-2">
+            <button onClick={showAllLayers} className="text-xs text-primary-600 hover:text-primary-700 font-medium">Show All</button>
+            {DESIGN_LAYERS.some((l) => l.key === tab) && (
+              <button onClick={() => showOnlyLayer(tab)} className="text-xs text-primary-600 hover:text-primary-700 font-medium">Solo</button>
+            )}
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          {DESIGN_LAYERS.map((layer) => {
+            const count = getDevicesForLayer(design.placedDevices, layer.key).length;
+            const isVisible = visibleLayers.has(layer.key);
+            return (
+              <label
+                key={layer.key}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-full border cursor-pointer transition-all text-xs font-medium ${
+                  isVisible
+                    ? `${layer.bgColor} ${layer.borderColor} ${layer.color}`
+                    : 'bg-gray-100 border-gray-200 text-gray-400'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={isVisible}
+                  onChange={() => toggleLayer(layer.key)}
+                  className="sr-only"
+                />
+                <span className={`w-2 h-2 rounded-full ${isVisible ? layer.dotColor : 'bg-gray-300'}`} />
+                {layer.shortLabel}
+                {count > 0 && (
+                  <span className={`inline-flex px-1.5 py-0 rounded-full text-xs ${isVisible ? 'bg-white/60' : 'bg-gray-200'}`}>
+                    {count}
+                  </span>
+                )}
+              </label>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* System Tabs + Export Tabs */}
+      <div className="border-b border-gray-200 mb-6">
+        <div className="flex gap-1 overflow-x-auto">
+          {/* System layer tabs */}
+          {DESIGN_LAYERS.map((layer) => {
+            const count = getDevicesForLayer(design.placedDevices, layer.key).length;
+            const isActive = tab === layer.key;
+            return (
+              <button
+                key={layer.key}
+                onClick={() => setTab(layer.key)}
+                className={`pb-3 px-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+                  isActive
+                    ? 'border-primary-500 text-primary-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${isActive ? layer.dotColor : 'bg-gray-300'}`} />
+                {layer.label}
+                {count > 0 && (
+                  <span className="text-xs text-gray-400">({count})</span>
+                )}
+              </button>
+            );
+          })}
+          {/* Separator */}
+          <div className="border-l border-gray-200 mx-2" />
+          {/* Export tabs */}
+          {[
+            { key: 'hardware-schedule' as TabType, label: 'Hardware Schedule' },
+            { key: 'sow' as TabType, label: 'Statement of Work' },
+          ].map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`pb-3 px-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                tab === t.key
+                  ? 'border-primary-500 text-primary-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+          {/* Separator */}
+          <div className="border-l border-gray-200 mx-2" />
+          {/* Tools tab */}
+          <button
+            onClick={() => setTab('tools')}
+            className={`pb-3 px-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+              tab === 'tools'
+                ? 'border-primary-500 text-primary-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Tools
+          </button>
+        </div>
+      </div>
+
+      {/* Tab Content */}
+      {tab === 'cctv' && (
+        <LayerDevicesTab
+          design={design}
+          canManage={canManage}
+          onRefresh={loadDesign}
+          layerKey="cctv"
+          visibleLayers={visibleLayers}
+        />
+      )}
+      {tab === 'access-control' && (
+        <div className="space-y-6">
+          <LayerDevicesTab
+            design={design}
+            canManage={canManage}
+            onRefresh={loadDesign}
+            layerKey="access-control"
+            visibleLayers={visibleLayers}
+          />
+          <AccessControlTab design={design} opp={opp} />
+        </div>
+      )}
+      {tab === 'vape-environmental' && (
+        <LayerDevicesTab
+          design={design}
+          canManage={canManage}
+          onRefresh={loadDesign}
+          layerKey="vape-environmental"
+          visibleLayers={visibleLayers}
+        />
+      )}
+      {tab === 'network' && (
+        <LayerDevicesTab
+          design={design}
+          canManage={canManage}
+          onRefresh={loadDesign}
+          layerKey="network"
+          visibleLayers={visibleLayers}
+        />
+      )}
+      {tab === 'av' && (
+        <LayerDevicesTab
+          design={design}
+          canManage={canManage}
+          onRefresh={loadDesign}
+          layerKey="av"
+          visibleLayers={visibleLayers}
+        />
+      )}
+      {tab === 'other' && (
+        <LayerDevicesTab
+          design={design}
+          canManage={canManage}
+          onRefresh={loadDesign}
+          layerKey="other"
+          visibleLayers={visibleLayers}
+        />
+      )}
+      {tab === 'hardware-schedule' && (
+        <HardwareScheduleTab designId={design.id} design={design} />
+      )}
+      {tab === 'sow' && (
+        <SOWTab designId={design.id} />
+      )}
+      {tab === 'tools' && (
+        <DesignToolsTab />
+      )}
+    </div>
+  );
+}
+
+// ===== Design Tools Tab =====
+
+const DESIGN_TOOLS = [
+  {
+    title: 'FOV Calculator',
+    description: 'Lens selection, tilt angle, blind spot distance, and forensic quality assessment for camera placement.',
+    href: '/tools/fov-calculator',
+    color: 'border-l-indigo-500',
+    system: 'CCTV',
+  },
+  {
+    title: 'LPR Calculator',
+    description: 'Focal length, shutter speed, capture angle, and frame rate calculations for license plate recognition.',
+    href: '/tools/lpr-calculator',
+    color: 'border-l-red-500',
+    system: 'CCTV',
+  },
+  {
+    title: 'Mounting Calculator',
+    description: 'Generate mount hardware BOM by manufacturer, camera model, location type, and finish color.',
+    href: '/tools/mounting-calculator',
+    color: 'border-l-orange-500',
+    system: 'CCTV',
+  },
+  {
+    title: 'System Calculator',
+    description: 'Storage, bandwidth, and server configuration based on camera count, resolution, FPS, and retention.',
+    href: '/tools/system-calculator',
+    color: 'border-l-green-500',
+    system: 'CCTV',
+  },
+  {
+    title: 'Access Control Door Builder',
+    description: 'Electrical load, wiring schedule, and compliance audit for single or mantrap access control doors.',
+    href: '/tools/access-control-builder',
+    color: 'border-l-emerald-500',
+    system: 'Access Control',
+  },
+  {
+    title: 'Door Compliance Auditor',
+    description: 'ADA, NFPA 101, and state fire marshal compliance checks for access-controlled doors.',
+    href: '/tools/door-compliance',
+    color: 'border-l-rose-500',
+    system: 'Access Control',
+  },
+  {
+    title: 'Mantrap Schematic Designer',
+    description: 'Wiring schedule, power calculation, and interlock schematic for mantrap door systems.',
+    href: '/tools/mantrap-designer',
+    color: 'border-l-violet-500',
+    system: 'Access Control',
+  },
+  {
+    title: 'Compliance Rules Manager',
+    description: 'Upload, export, and verify state jurisdiction fire code compliance rules.',
+    href: '/tools/compliance-rules',
+    color: 'border-l-amber-500',
+    system: 'Access Control',
+  },
+  {
+    title: 'Wireless PtP Calculator',
+    description: 'Capacity audit, rain fade, PoE budget, line-of-sight, and wind load for wireless point-to-point links.',
+    href: '/tools/wireless-ptp',
+    color: 'border-l-teal-500',
+    system: 'Network',
+  },
+  {
+    title: 'Device Library',
+    description: 'Browse and search the full NDAA-compliant device catalog by manufacturer, category, and specifications.',
+    href: '/tools/device-library',
+    color: 'border-l-blue-500',
+    system: 'General',
+  },
+  {
+    title: 'Mount Selector',
+    description: 'Find compatible mounts and accessories for any camera in the device library.',
+    href: '/tools/mount-selector',
+    color: 'border-l-purple-500',
+    system: 'General',
+  },
+];
+
+function DesignToolsTab() {
+  const router = useRouter();
+
+  const grouped = useMemo(() => {
+    const groups: Record<string, typeof DESIGN_TOOLS> = {};
+    for (const tool of DESIGN_TOOLS) {
+      if (!groups[tool.system]) groups[tool.system] = [];
+      groups[tool.system].push(tool);
+    }
+    return groups;
+  }, []);
+
+  return (
+    <div className="space-y-6">
+      <div className="card p-4 bg-gray-50">
+        <p className="text-sm text-gray-600">
+          Quick access to all design and engineering tools. Each tool opens in a new page -- results from these tools
+          inform your design decisions for hardware selection, compliance, and system sizing.
+        </p>
+      </div>
+
+      {Object.entries(grouped).map(([system, tools]) => (
+        <div key={system}>
+          <h3 className="text-sm font-semibold text-gray-800 mb-3">{system}</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {tools.map((tool) => (
+              <button
+                key={tool.href}
+                onClick={() => router.push(tool.href)}
+                className={`card p-4 border-l-4 ${tool.color} hover:shadow-md cursor-pointer transition-all text-left`}
+              >
+                <h4 className="font-medium text-gray-900 text-sm mb-1">{tool.title}</h4>
+                <p className="text-xs text-gray-500">{tool.description}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ===== Hard Drive Quick Calc =====
+
+function HardDriveQuickCalc({ cameraCount }: { cameraCount: number }) {
+  const bitratePerCam = 5.0 * (15 / 30) * 1.0;
+  const totalMbps = bitratePerCam * cameraCount;
+  const rawTB = (totalMbps * 3600 * 24 * 30 * 0.5 * 1.15) / 8_000_000;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex justify-between text-sm">
+        <span className="text-gray-500">Est. Storage</span>
+        <span className="font-semibold text-gray-900">{rawTB.toFixed(1)} TB</span>
+      </div>
+      <div className="flex justify-between text-sm">
+        <span className="text-gray-500">Bandwidth</span>
+        <span className="font-semibold text-gray-900">{totalMbps.toFixed(1)} Mbps</span>
+      </div>
+      <p className="text-xs text-gray-400 mt-1">
+        Estimate: 4MP, 15fps, H.265, 30d, 50% motion
+      </p>
+      <p className="text-xs text-gray-400">
+        Use System Calculator for detailed analysis
+      </p>
+    </div>
+  );
+}
+
+// ===== Devices Tab =====
+
+function DevicesTab({
+  design,
+  canManage,
+  onRefresh,
+}: {
+  design: DesignDetail;
+  canManage: boolean;
+  onRefresh: () => void;
+}) {
+  const { accessToken } = useAuthStore();
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [editingDevice, setEditingDevice] = useState<PlacedDeviceData | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+
+  const grouped = groupDevicesByLocation(design.placedDevices);
+
+  async function handleRemove(placedDeviceId: string) {
+    if (!accessToken) return;
+    try {
+      await designsApi.removeDevice(accessToken, design.id, placedDeviceId);
+      setDeleteConfirm(null);
+      onRefresh();
+    } catch {
+      // ignore
+    }
+  }
+
+  return (
+    <div>
+      {canManage && (
+        <div className="mb-4">
+          <button onClick={() => setShowAddModal(true)} className="btn-primary text-sm">
+            Add Device
+          </button>
+        </div>
+      )}
+
+      {design.placedDevices.length === 0 ? (
+        <div className="card p-8 text-center">
+          <p className="text-sm text-gray-500 mb-3">No devices in this design yet</p>
+          {canManage && (
+            <button onClick={() => setShowAddModal(true)} className="btn-primary text-sm">
+              Add First Device
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {grouped.map((area) => (
+            <div key={area.area} className="card overflow-hidden">
+              <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
+                <h3 className="font-semibold text-sm text-gray-800">{area.area}</h3>
+              </div>
+              {area.floors.map((floor) => (
+                <div key={floor.floor}>
+                  {floor.floor !== area.area && (
+                    <div className="px-4 py-1.5 border-b border-gray-100">
+                      <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                        {floor.floor}
+                      </span>
+                    </div>
+                  )}
+                  {floor.rooms.map((room) => (
+                    <div key={room.room}>
+                      {room.room !== floor.floor && (
+                        <div className="px-6 py-1 border-b border-gray-50">
+                          <span className="text-xs text-gray-400">{room.room}</span>
+                        </div>
+                      )}
+                      {room.devices.map((pd) => (
+                        <div
+                          key={pd.id}
+                          className="flex items-center justify-between px-4 py-3 border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors"
+                        >
+                          <div className="flex items-center gap-4 min-w-0">
+                            <div>
+                              <p className="text-sm font-medium text-gray-900">
+                                {pd.device?.manufacturer} {pd.device?.model}
+                              </p>
+                              <div className="flex items-center gap-3 text-xs text-gray-400 mt-0.5">
+                                <span className="font-mono">{pd.device?.partNumber}</span>
+                                <span className="capitalize">
+                                  {CATEGORY_LABELS[pd.device?.category || ''] || pd.device?.category}
+                                </span>
+                                {pd.device?.ndaaCompliant === false && (
+                                  <span className="text-red-600 font-medium">Non-NDAA</span>
+                                )}
+                                {pd.fovAngle != null && <span>FOV: {pd.fovAngle} deg</span>}
+                                {pd.fovDistance != null && <span>Dist: {pd.fovDistance} ft</span>}
+                                {pd.cameraHeight != null && <span>Height: {pd.cameraHeight} ft</span>}
+                              </div>
+                              {pd.notes && (
+                                <p className="text-xs text-gray-400 mt-1">{pd.notes}</p>
+                              )}
+                            </div>
+                          </div>
+                          {canManage && (
+                            <div className="flex items-center gap-2 ml-4 shrink-0">
+                              <button
+                                onClick={() => setEditingDevice(pd)}
+                                className="text-primary-600 hover:text-primary-700 text-xs font-medium"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => setDeleteConfirm(pd.id)}
+                                className="text-red-500 hover:text-red-700 text-xs font-medium"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showAddModal && (
+        <AddDeviceModal
+          designId={design.id}
+          onClose={() => setShowAddModal(false)}
+          onAdded={() => { setShowAddModal(false); onRefresh(); }}
+        />
+      )}
+
+      {editingDevice && (
+        <EditDeviceModal
+          designId={design.id}
+          placedDevice={editingDevice}
+          onClose={() => setEditingDevice(null)}
+          onSaved={() => { setEditingDevice(null); onRefresh(); }}
+        />
+      )}
+
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-sm p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Remove Device</h3>
+            <p className="text-sm text-gray-600 mb-4">Remove this device from the design?</p>
+            <div className="flex items-center justify-end gap-3">
+              <button onClick={() => setDeleteConfirm(null)} className="btn-secondary text-sm">Cancel</button>
+              <button
+                onClick={() => handleRemove(deleteConfirm)}
+                className="bg-red-600 text-white px-4 py-2 rounded text-sm font-medium hover:bg-red-700"
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ===== Layer Devices Tab (per-system filtered view) =====
+
+function LayerDevicesTab({
+  design,
+  canManage,
+  onRefresh,
+  layerKey,
+  visibleLayers,
+}: {
+  design: DesignDetail;
+  canManage: boolean;
+  onRefresh: () => void;
+  layerKey: SystemTab;
+  visibleLayers: Set<string>;
+}) {
+  const { accessToken } = useAuthStore();
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [editingDevice, setEditingDevice] = useState<PlacedDeviceData | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+
+  const layer = DESIGN_LAYERS.find((l) => l.key === layerKey)!;
+  const layerDevices = getDevicesForLayer(design.placedDevices, layerKey);
+  const allVisibleDevices = getVisibleDevices(design.placedDevices, visibleLayers);
+  const otherVisibleDevices = allVisibleDevices.filter(
+    (pd) => !layer.categories.includes(pd.device?.category || '')
+  );
+
+  const grouped = groupDevicesByLocation(layerDevices);
+
+  async function handleRemove(placedDeviceId: string) {
+    if (!accessToken) return;
+    try {
+      await designsApi.removeDevice(accessToken, design.id, placedDeviceId);
+      setDeleteConfirm(null);
+      onRefresh();
+    } catch {
+      // ignore
+    }
+  }
+
+  return (
+    <div>
+      {/* Layer header */}
+      <div className={`rounded-t border ${layer.borderColor} ${layer.bgColor} px-4 py-3 mb-0 flex items-center justify-between`}>
+        <div className="flex items-center gap-3">
+          <span className={`w-3 h-3 rounded-full ${layer.dotColor}`} />
+          <h2 className={`text-sm font-semibold ${layer.color}`}>{layer.label}</h2>
+          <span className="text-xs text-gray-500">{layerDevices.length} device{layerDevices.length !== 1 ? 's' : ''}</span>
+        </div>
+        {canManage && (
+          <button onClick={() => setShowAddModal(true)} className="btn-primary text-sm">
+            Add {layer.shortLabel} Device
+          </button>
+        )}
+      </div>
+
+      {/* Other visible layers context indicator */}
+      {otherVisibleDevices.length > 0 && (
+        <div className="bg-gray-50 border-x border-gray-200 px-4 py-2 text-xs text-gray-500 flex items-center gap-2">
+          <span>Also visible on canvas:</span>
+          {DESIGN_LAYERS.filter((l) => l.key !== layerKey && visibleLayers.has(l.key)).map((l) => {
+            const count = getDevicesForLayer(design.placedDevices, l.key).length;
+            if (count === 0) return null;
+            return (
+              <span key={l.key} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full ${l.bgColor} ${l.color} border ${l.borderColor}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${l.dotColor}`} />
+                {l.shortLabel} ({count})
+              </span>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Device list for this layer */}
+      {layerDevices.length === 0 ? (
+        <div className="card rounded-t-none p-8 text-center">
+          <p className="text-sm text-gray-500 mb-3">No {layer.label.toLowerCase()} devices in this design yet</p>
+          {canManage && (
+            <button onClick={() => setShowAddModal(true)} className="btn-primary text-sm">
+              Add First {layer.shortLabel} Device
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="card rounded-t-none overflow-hidden">
+          {grouped.map((area) => (
+            <div key={area.area}>
+              <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
+                <h3 className="font-semibold text-sm text-gray-800">{area.area}</h3>
+              </div>
+              {area.floors.map((floor) => (
+                <div key={floor.floor}>
+                  {floor.floor !== area.area && (
+                    <div className="px-4 py-1.5 border-b border-gray-100">
+                      <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                        {floor.floor}
+                      </span>
+                    </div>
+                  )}
+                  {floor.rooms.map((room) => (
+                    <div key={room.room}>
+                      {room.room !== floor.floor && (
+                        <div className="px-6 py-1 border-b border-gray-50">
+                          <span className="text-xs text-gray-400">{room.room}</span>
+                        </div>
+                      )}
+                      {room.devices.map((pd) => (
+                        <div
+                          key={pd.id}
+                          className="flex items-center justify-between px-4 py-3 border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors"
+                        >
+                          <div className="flex items-center gap-4 min-w-0">
+                            <span className={`w-2 h-2 rounded-full shrink-0 ${layer.dotColor}`} />
+                            <div>
+                              <p className="text-sm font-medium text-gray-900">
+                                {pd.device?.manufacturer} {pd.device?.model}
+                              </p>
+                              <div className="flex items-center gap-3 text-xs text-gray-400 mt-0.5">
+                                <span className="font-mono">{pd.device?.partNumber}</span>
+                                <span className="capitalize">
+                                  {CATEGORY_LABELS[pd.device?.category || ''] || pd.device?.category}
+                                </span>
+                                {pd.device?.ndaaCompliant === false && (
+                                  <span className="text-red-600 font-medium">Non-NDAA</span>
+                                )}
+                                {pd.fovAngle != null && <span>FOV: {pd.fovAngle} deg</span>}
+                                {pd.fovDistance != null && <span>Dist: {pd.fovDistance} ft</span>}
+                                {pd.cameraHeight != null && <span>Height: {pd.cameraHeight} ft</span>}
+                              </div>
+                              {pd.notes && (
+                                <p className="text-xs text-gray-400 mt-1">{pd.notes}</p>
+                              )}
+                            </div>
+                          </div>
+                          {canManage && (
+                            <div className="flex items-center gap-2 ml-4 shrink-0">
+                              <button
+                                onClick={() => setEditingDevice(pd)}
+                                className="text-primary-600 hover:text-primary-700 text-xs font-medium"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => setDeleteConfirm(pd.id)}
+                                className="text-red-500 hover:text-red-700 text-xs font-medium"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showAddModal && (
+        <AddDeviceModal
+          designId={design.id}
+          defaultCategory={layer.categories[0]}
+          onClose={() => setShowAddModal(false)}
+          onAdded={() => { setShowAddModal(false); onRefresh(); }}
+        />
+      )}
+
+      {editingDevice && (
+        <EditDeviceModal
+          designId={design.id}
+          placedDevice={editingDevice}
+          onClose={() => setEditingDevice(null)}
+          onSaved={() => { setEditingDevice(null); onRefresh(); }}
+        />
+      )}
+
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-sm p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Remove Device</h3>
+            <p className="text-sm text-gray-600 mb-4">Remove this device from the design?</p>
+            <div className="flex items-center justify-end gap-3">
+              <button onClick={() => setDeleteConfirm(null)} className="btn-secondary text-sm">Cancel</button>
+              <button
+                onClick={() => handleRemove(deleteConfirm)}
+                className="bg-red-600 text-white px-4 py-2 rounded text-sm font-medium hover:bg-red-700"
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ===== Add Device Modal =====
+
+function AddDeviceModal({ designId, defaultCategory, onClose, onAdded }: { designId: string; defaultCategory?: string; onClose: () => void; onAdded: () => void }) {
+  const { accessToken } = useAuthStore();
+  const [step, setStep] = useState<'select' | 'configure'>('select');
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterCat, setFilterCat] = useState(defaultCategory || '');
+  const [filterMfr, setFilterMfr] = useState('');
+  const [manufacturers, setManufacturers] = useState<string[]>([]);
+  const [loadingDevices, setLoadingDevices] = useState(true);
+  const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
+  const [area, setArea] = useState('');
+  const [floor, setFloor] = useState('');
+  const [room, setRoom] = useState('');
+  const [fovAngle, setFovAngle] = useState('');
+  const [fovDistance, setFovDistance] = useState('');
+  const [cameraHeight, setCameraHeight] = useState('');
+  const [tilt, setTilt] = useState('');
+  const [notes, setNotes] = useState('');
+  const [installDetails, setInstallDetails] = useState('');
+  const [quantity, setQuantity] = useState(1);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const loadDeviceList = useCallback(async () => {
+    if (!accessToken) return;
+    setLoadingDevices(true);
+    try {
+      const query: Record<string, string> = { status: 'active' };
+      if (searchTerm) query.search = searchTerm;
+      if (filterCat) query.category = filterCat;
+      if (filterMfr) query.manufacturer = filterMfr;
+      const res = await devicesApi.list(accessToken, query);
+      setDevices(res.data);
+    } catch { /* ignore */ } finally { setLoadingDevices(false); }
+  }, [accessToken, searchTerm, filterCat, filterMfr]);
+
+  useEffect(() => { loadDeviceList(); }, [loadDeviceList]);
+  useEffect(() => {
+    if (!accessToken) return;
+    devicesApi.manufacturers(accessToken).then((res) => setManufacturers(res.data)).catch(() => {});
+  }, [accessToken]);
+
+  function selectDevice(device: Device) {
+    setSelectedDevice(device);
+    setFovAngle(device.hfov != null ? String(device.hfov) : '');
+    setFovDistance(device.maxDistance != null ? String(device.maxDistance) : '');
+    setStep('configure');
+  }
+
+  async function handleAdd() {
+    if (!accessToken || !selectedDevice) return;
+    setSaving(true);
+    setError('');
+    try {
+      for (let i = 0; i < quantity; i++) {
+        await designsApi.addDevice(accessToken, designId, {
+          deviceId: selectedDevice.id,
+          area: area || undefined, floor: floor || undefined, room: room || undefined,
+          fovAngle: fovAngle ? Number(fovAngle) : undefined,
+          fovDistance: fovDistance ? Number(fovDistance) : undefined,
+          cameraHeight: cameraHeight ? Number(cameraHeight) : undefined,
+          tilt: tilt ? Number(tilt) : undefined,
+          notes: notes || undefined, installDetails: installDetails || undefined,
+        });
+      }
+      onAdded();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add device');
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-8 bg-black/30">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+          <h2 className="text-lg font-semibold text-gray-900">
+            {step === 'select' ? 'Select Device from Library' : `Configure: ${selectedDevice?.manufacturer} ${selectedDevice?.model}`}
+          </h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">x</button>
+        </div>
+
+        {step === 'select' ? (
+          <div className="p-6">
+            <div className="grid grid-cols-3 gap-3 mb-4">
+              <input type="text" placeholder="Search devices..." className="input-field" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} autoFocus />
+              <select className="input-field" value={filterCat} onChange={(e) => setFilterCat(e.target.value)}>
+                <option value="">All Categories</option>
+                {['camera', 'access_control', 'vape_environmental', 'networking', 'av', 'sensor', 'mount', 'accessory'].map((c) => (
+                  <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>
+                ))}
+              </select>
+              <select className="input-field" value={filterMfr} onChange={(e) => setFilterMfr(e.target.value)}>
+                <option value="">All Manufacturers</option>
+                {manufacturers.map((m) => (<option key={m} value={m}>{m}</option>))}
+              </select>
+            </div>
+            <div className="border rounded max-h-96 overflow-y-auto">
+              {loadingDevices ? (
+                <div className="p-4 text-center text-sm text-gray-400">Loading devices...</div>
+              ) : devices.length === 0 ? (
+                <div className="p-4 text-center text-sm text-gray-500">No devices found</div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-gray-50">
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left px-3 py-2 font-medium text-gray-600">Manufacturer</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-600">Model</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-600">Part #</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-600">Category</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-600">Res.</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-600">NDAA</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {devices.map((d) => (
+                      <tr key={d.id} onClick={() => selectDevice(d)} className="border-b border-gray-100 hover:bg-primary-50 cursor-pointer transition-colors">
+                        <td className="px-3 py-2 font-medium text-gray-900">{d.manufacturer}</td>
+                        <td className="px-3 py-2 text-gray-700">{d.model}</td>
+                        <td className="px-3 py-2 text-gray-400 font-mono text-xs">{d.partNumber}</td>
+                        <td className="px-3 py-2 text-gray-500 capitalize">{CATEGORY_LABELS[d.category] || d.category}</td>
+                        <td className="px-3 py-2 text-gray-500">{d.resolution || '-'}</td>
+                        <td className="px-3 py-2">
+                          {d.ndaaCompliant ? (
+                            <span className="inline-flex px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">Yes</span>
+                          ) : (
+                            <span className="inline-flex px-1.5 py-0.5 rounded text-xs font-medium bg-red-50 text-red-600">No</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="p-6 space-y-4">
+            {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded text-sm">{error}</div>}
+            {selectedDevice && !selectedDevice.ndaaCompliant && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded text-sm">
+                Warning: This device is not NDAA compliant.
+              </div>
+            )}
+            <div className="flex items-center gap-2 mb-2">
+              <button onClick={() => setStep('select')} className="text-xs text-gray-400 hover:text-gray-600">Change device</button>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div><label className="label">Area</label><input type="text" className="input-field" placeholder="e.g. Building A" value={area} onChange={(e) => setArea(e.target.value)} /></div>
+              <div><label className="label">Floor</label><input type="text" className="input-field" placeholder="e.g. Floor 1" value={floor} onChange={(e) => setFloor(e.target.value)} /></div>
+              <div><label className="label">Room</label><input type="text" className="input-field" placeholder="e.g. Main Lobby" value={room} onChange={(e) => setRoom(e.target.value)} /></div>
+            </div>
+            <div className="grid grid-cols-4 gap-4">
+              <div><label className="label">FOV Angle (deg)</label><input type="number" className="input-field" value={fovAngle} onChange={(e) => setFovAngle(e.target.value)} /></div>
+              <div><label className="label">FOV Distance (ft)</label><input type="number" className="input-field" value={fovDistance} onChange={(e) => setFovDistance(e.target.value)} /></div>
+              <div><label className="label">Camera Height (ft)</label><input type="number" className="input-field" value={cameraHeight} onChange={(e) => setCameraHeight(e.target.value)} /></div>
+              <div><label className="label">Tilt (deg)</label><input type="number" className="input-field" value={tilt} onChange={(e) => setTilt(e.target.value)} /></div>
+            </div>
+            {/* FOV Analysis Panel */}
+            {selectedDevice?.category === 'camera' && cameraHeight && fovDistance && (
+              <FovAnalysisPanel
+                manufacturer={selectedDevice.manufacturer}
+                model={selectedDevice.model}
+                heightFt={parseFloat(cameraHeight) || 0}
+                distanceFt={parseFloat(fovDistance) || 0}
+                onApplyTilt={(val) => setTilt(String(val.toFixed(1)))}
+                onApplyFovAngle={(val) => setFovAngle(String(val.toFixed(1)))}
+              />
+            )}
+            {/* Mount Suggestion */}
+            {selectedDevice?.category === 'camera' && (
+              <MountSuggestionPanel
+                manufacturer={selectedDevice.manufacturer}
+                model={selectedDevice.model}
+              />
+            )}
+            {/* Access Control: Inline Door Builder & Compliance */}
+            {selectedDevice?.category === 'access_control' && (
+              <DoorBuilderInlinePanel />
+            )}
+            {selectedDevice?.category === 'access_control' && (
+              <ComplianceInlinePanel />
+            )}
+            <div className="w-32">
+              <label className="label">Quantity</label>
+              <input type="number" className="input-field" min={1} max={100} value={quantity} onChange={(e) => setQuantity(Math.max(1, Number(e.target.value) || 1))} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div><label className="label">Notes</label><textarea className="input-field" rows={2} placeholder="Camera coverage notes..." value={notes} onChange={(e) => setNotes(e.target.value)} /></div>
+              <div><label className="label">Install Details</label><textarea className="input-field" rows={2} placeholder="Installation requirements..." value={installDetails} onChange={(e) => setInstallDetails(e.target.value)} /></div>
+            </div>
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button onClick={onClose} className="btn-secondary text-sm">Cancel</button>
+              <button onClick={handleAdd} disabled={saving} className="btn-primary text-sm">
+                {saving ? 'Adding...' : `Add ${quantity > 1 ? `${quantity} Devices` : 'Device'}`}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ===== Edit Device Modal =====
+
+function EditDeviceModal({ designId, placedDevice, onClose, onSaved }: { designId: string; placedDevice: PlacedDeviceData; onClose: () => void; onSaved: () => void }) {
+  const { accessToken } = useAuthStore();
+  const [area, setArea] = useState(placedDevice.area || '');
+  const [floor, setFloor] = useState(placedDevice.floor || '');
+  const [room, setRoom] = useState(placedDevice.room || '');
+  const [fovAngle, setFovAngle] = useState(placedDevice.fovAngle != null ? String(placedDevice.fovAngle) : '');
+  const [fovDistance, setFovDistance] = useState(placedDevice.fovDistance != null ? String(placedDevice.fovDistance) : '');
+  const [cameraHeight, setCameraHeight] = useState(placedDevice.cameraHeight != null ? String(placedDevice.cameraHeight) : '');
+  const [tilt, setTilt] = useState(placedDevice.tilt != null ? String(placedDevice.tilt) : '');
+  const [notes, setNotes] = useState(placedDevice.notes || '');
+  const [installDetails, setInstallDetails] = useState(placedDevice.installDetails || '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  async function handleSave() {
+    if (!accessToken) return;
+    setSaving(true); setError('');
+    try {
+      await designsApi.updateDevice(accessToken, designId, placedDevice.id, {
+        area: area || undefined, floor: floor || undefined, room: room || undefined,
+        fovAngle: fovAngle ? Number(fovAngle) : undefined, fovDistance: fovDistance ? Number(fovDistance) : undefined,
+        cameraHeight: cameraHeight ? Number(cameraHeight) : undefined, tilt: tilt ? Number(tilt) : undefined,
+        notes: notes || undefined, installDetails: installDetails || undefined,
+      } as Partial<PlacedDeviceData>);
+      onSaved();
+    } catch (err) { setError(err instanceof Error ? err.message : 'Failed to update'); } finally { setSaving(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-8 bg-black/30">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+          <h2 className="text-lg font-semibold text-gray-900">Edit: {placedDevice.device?.manufacturer} {placedDevice.device?.model}</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">x</button>
+        </div>
+        <div className="p-6 space-y-4">
+          {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded text-sm">{error}</div>}
+          <div className="grid grid-cols-3 gap-4">
+            <div><label className="label">Area</label><input type="text" className="input-field" value={area} onChange={(e) => setArea(e.target.value)} /></div>
+            <div><label className="label">Floor</label><input type="text" className="input-field" value={floor} onChange={(e) => setFloor(e.target.value)} /></div>
+            <div><label className="label">Room</label><input type="text" className="input-field" value={room} onChange={(e) => setRoom(e.target.value)} /></div>
+          </div>
+          <div className="grid grid-cols-4 gap-4">
+            <div><label className="label">FOV Angle (deg)</label><input type="number" className="input-field" value={fovAngle} onChange={(e) => setFovAngle(e.target.value)} /></div>
+            <div><label className="label">FOV Distance (ft)</label><input type="number" className="input-field" value={fovDistance} onChange={(e) => setFovDistance(e.target.value)} /></div>
+            <div><label className="label">Camera Height (ft)</label><input type="number" className="input-field" value={cameraHeight} onChange={(e) => setCameraHeight(e.target.value)} /></div>
+            <div><label className="label">Tilt (deg)</label><input type="number" className="input-field" value={tilt} onChange={(e) => setTilt(e.target.value)} /></div>
+          </div>
+          {/* FOV Analysis Panel */}
+          {placedDevice.device?.category === 'camera' && cameraHeight && fovDistance && (
+            <FovAnalysisPanel
+              manufacturer={placedDevice.device.manufacturer}
+              model={placedDevice.device.model}
+              heightFt={parseFloat(cameraHeight) || 0}
+              distanceFt={parseFloat(fovDistance) || 0}
+              onApplyTilt={(val) => setTilt(String(val.toFixed(1)))}
+              onApplyFovAngle={(val) => setFovAngle(String(val.toFixed(1)))}
+            />
+          )}
+          <div className="grid grid-cols-2 gap-4">
+            <div><label className="label">Notes</label><textarea className="input-field" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} /></div>
+            <div><label className="label">Install Details</label><textarea className="input-field" rows={2} value={installDetails} onChange={(e) => setInstallDetails(e.target.value)} /></div>
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200">
+          <button onClick={onClose} className="btn-secondary text-sm">Cancel</button>
+          <button onClick={handleSave} disabled={saving} className="btn-primary text-sm">{saving ? 'Saving...' : 'Save Changes'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ===== FOV Analysis Panel (shared by AddDeviceModal + EditDeviceModal) =====
+
+function FovAnalysisPanel({
+  manufacturer,
+  model,
+  heightFt,
+  distanceFt,
+  onApplyTilt,
+  onApplyFovAngle,
+}: {
+  manufacturer: string;
+  model: string;
+  heightFt: number;
+  distanceFt: number;
+  onApplyTilt: (deg: number) => void;
+  onApplyFovAngle: (deg: number) => void;
+}) {
+  const [ppf, setPpf] = useState(76);
+  const [expanded, setExpanded] = useState(true);
+
+  const sensor = DESIGN_FOV_DB[manufacturer]?.[model] || DEFAULT_SENSOR;
+  if (heightFt <= 0 || distanceFt <= 0) return null;
+
+  const result = calcFovAnalysis(sensor, heightFt, distanceFt, ppf);
+
+  return (
+    <div className="border border-indigo-200 rounded bg-indigo-50/50">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between px-4 py-2 text-sm font-medium text-indigo-800"
+      >
+        <span>FOV Analysis</span>
+        <span className="text-xs text-indigo-500">{expanded ? 'collapse' : 'expand'}</span>
+      </button>
+      {expanded && (
+        <div className="px-4 pb-3 space-y-2">
+          <div className="flex items-center gap-3 mb-2">
+            <select
+              className="input-field text-xs py-1"
+              value={ppf}
+              onChange={(e) => setPpf(Number(e.target.value))}
+            >
+              {PPF_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded ${result.quality === 'OPTIMAL' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+              {result.quality}
+            </span>
+          </div>
+          <div className="grid grid-cols-4 gap-3 text-xs">
+            <div>
+              <span className="text-gray-400">Focal Length</span>
+              <p className="font-semibold text-gray-900">{result.focal.toFixed(1)} mm</p>
+            </div>
+            <div>
+              <span className="text-gray-400">Tilt Angle</span>
+              <p className="font-semibold text-gray-900">{result.tiltDeg.toFixed(1)} deg</p>
+            </div>
+            <div>
+              <span className="text-gray-400">Blind Spot</span>
+              <p className="font-semibold text-gray-900">{result.blindSpot.toFixed(1)} ft</p>
+            </div>
+            <div>
+              <span className="text-gray-400">HFOV</span>
+              <p className="font-semibold text-gray-900">{result.hfov.toFixed(1)} deg</p>
+            </div>
+          </div>
+          <div className="flex gap-2 mt-1">
+            <button
+              type="button"
+              onClick={() => onApplyTilt(result.tiltDeg)}
+              className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+            >
+              Apply Tilt
+            </button>
+            <button
+              type="button"
+              onClick={() => onApplyFovAngle(result.hfov)}
+              className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+            >
+              Apply FOV Angle
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ===== Mount Suggestion Panel (AddDeviceModal only) =====
+
+function MountSuggestionPanel({ manufacturer, model }: { manufacturer: string; model: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [location, setLocation] = useState<MountLocation>('Wall');
+  const bom = getMountBom(manufacturer, model, location);
+
+  if (bom.length === 0) return null;
+
+  return (
+    <div className="border border-orange-200 rounded bg-orange-50/50">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between px-4 py-2 text-sm font-medium text-orange-800"
+      >
+        <span>Suggested Mounts</span>
+        <span className="text-xs text-orange-500">{expanded ? 'collapse' : 'expand'}</span>
+      </button>
+      {expanded && (
+        <div className="px-4 pb-3 space-y-2">
+          <select
+            className="input-field text-xs py-1 w-32"
+            value={location}
+            onChange={(e) => setLocation(e.target.value as MountLocation)}
+          >
+            <option value="Wall">Wall</option>
+            <option value="Corner">Corner</option>
+            <option value="Pole">Pole</option>
+            <option value="Flush">Flush</option>
+          </select>
+          <div className="space-y-1">
+            {bom.map((line, i) => (
+              <div key={i} className="flex items-center gap-3 text-xs">
+                <span className="text-gray-500 w-16">{line.component}</span>
+                <span className="font-mono text-orange-700 font-medium">{line.partNumber}</span>
+                <span className="text-gray-400">{line.desc}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ===== Hardware Schedule Tab (Enhanced) =====
+
+const BINARY_CONVERSION = 0.909;
+const RAID_PARITY = 1;
+const RAID_PENALTY = 4;
+const DRIVE_SIZES = [8, 10, 12, 14, 16, 18, 20];
+const MECH_LIMIT = 1440;
+
+function HardwareScheduleTab({ designId, design }: { designId: string; design: DesignDetail }) {
+  const { accessToken } = useAuthStore();
+  const [schedule, setSchedule] = useState<HardwareSchedule | null>(null);
+  const [loading, setLoading] = useState(true);
+  const printRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    setLoading(true);
+    designsApi.hardwareSchedule(accessToken, designId)
+      .then((res) => setSchedule(res.data))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [accessToken, designId]);
+
+  if (loading) return <div className="card p-8 text-center text-sm text-gray-400">Loading...</div>;
+  if (!schedule) return <div className="card p-8 text-center text-sm text-gray-500">Failed to load hardware schedule</div>;
+
+  const cameraCount = design.placedDevices.filter((pd) => pd.device?.category === 'camera').length;
+  const bitratePerCam = 5.0 * (15 / 30) * 1.0;
+  const totalMbps = bitratePerCam * cameraCount;
+  const rawTB = (totalMbps * 3600 * 24 * 30 * 1.0 * 1.15) / 8_000_000;
+
+  const raidRows = DRIVE_SIZES.map((driveSize) => {
+    const usable = driveSize * BINARY_CONVERSION;
+    const dataDrives = Math.max(1, Math.ceil(rawTB / usable));
+    const total = dataDrives + RAID_PARITY;
+    const writeLoad = total > 0 ? (totalMbps * RAID_PENALTY) / total : 0;
+    return { driveSize, total, dataDrives, rawLabel: total * driveSize, usable: dataDrives * usable, writeLoad, status: writeLoad > MECH_LIMIT ? 'OVERLOAD' : 'STABLE' };
+  });
+
+  const wattsPerCam = 13;
+  const totalWatts = wattsPerCam * cameraCount;
+  const totalWattsSafe = totalWatts * 1.25;
+  const uplink = totalMbps <= 90 ? '100 Mbps' : '1 Gbps';
+  const cloudUpload = totalMbps * 1.2;
+  const monthlyTB = (totalMbps * 3600 * 24 * 30) / 8_000_000;
+
+  const refRow = raidRows.find((r) => r.driveSize === 10) || raidRows[0];
+  const localCost = refRow.total * 10 * 28 * 1.25;
+  const cloudCost = rawTB * 7 * 12 * 5;
+
+  return (
+    <div ref={printRef} className="space-y-4">
+      <div className="flex justify-end print:hidden">
+        <button onClick={() => window.print()} className="btn-primary text-sm">Export Report</button>
+      </div>
+
+      {/* Device List */}
+      <div className="card overflow-hidden">
+        <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-gray-800">Device List</h3>
+            <div className="flex items-center gap-4 text-xs text-gray-500">
+              <span>Total: <strong className="text-gray-900">{schedule.totalDevices}</strong></span>
+              <span>Unique: <strong className="text-gray-900">{schedule.uniqueDevices}</strong></span>
+            </div>
+          </div>
+        </div>
+        {schedule.items.length === 0 ? (
+          <div className="p-8 text-center text-sm text-gray-500">No devices</div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-200">
+                <th className="text-left px-4 py-3 font-medium text-gray-600">Qty</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">Manufacturer</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">Model</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">Part Number</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">Category</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">Areas</th>
+              </tr>
+            </thead>
+            <tbody>
+              {schedule.items.map((item, i) => (
+                <tr key={i} className="border-b border-gray-100">
+                  <td className="px-4 py-3 font-bold text-gray-900">{item.quantity}</td>
+                  <td className="px-4 py-3 text-gray-700">{item.manufacturer}</td>
+                  <td className="px-4 py-3 font-medium text-gray-900">{item.model}</td>
+                  <td className="px-4 py-3 text-gray-400 font-mono text-xs">{item.partNumber}</td>
+                  <td className="px-4 py-3 text-gray-500 capitalize">{CATEGORY_LABELS[item.category] || item.category}</td>
+                  <td className="px-4 py-3 text-gray-400 text-xs">{item.areas.join('; ')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Recommended Mounting Hardware */}
+      {(() => {
+        const cameraItems = schedule.items.filter((item) => item.category === 'camera');
+        if (cameraItems.length === 0) return null;
+        const mountLines: { partNumber: string; component: string; desc: string; qty: number }[] = [];
+        for (const item of cameraItems) {
+          const bom = getMountBom(item.manufacturer, item.model, 'Wall');
+          for (const line of bom) {
+            const existing = mountLines.find((m) => m.partNumber === line.partNumber);
+            if (existing) { existing.qty += item.quantity; }
+            else { mountLines.push({ ...line, qty: item.quantity }); }
+          }
+        }
+        if (mountLines.length === 0) return null;
+        return (
+          <div className="card overflow-hidden">
+            <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
+              <h3 className="text-sm font-semibold text-gray-800">Recommended Mounting Hardware</h3>
+              <p className="text-xs text-gray-400 mt-0.5">Default: Wall mount, White finish — use Mounting Calculator for model-specific overrides</p>
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Qty</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Component</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Part Number</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                {mountLines.map((line, i) => (
+                  <tr key={i} className="border-b border-gray-100">
+                    <td className="px-4 py-2 font-bold text-gray-900">{line.qty}</td>
+                    <td className="px-4 py-2 text-gray-700">{line.component}</td>
+                    <td className="px-4 py-2 font-mono text-xs text-orange-700">{line.partNumber}</td>
+                    <td className="px-4 py-2 text-gray-500">{line.desc}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })()}
+
+      {/* Access Control Door Hardware (from door configs) */}
+      {(() => {
+        const doorConfigs = loadDoorConfigs(designId);
+        if (doorConfigs.length === 0) return null;
+        const doorLines: { label: string; doorType: string; controller: string; lock: string; lockType: string; draw: string; psu: string; violations: number; area: string }[] = [];
+        for (const cfg of doorConfigs) {
+          const build = calculateBuild(cfg.controllerBrand, cfg.controllerModel, cfg.doorType, cfg.lockBrand, cfg.lockModel, cfg.hasAdo, cfg.isMantrap, cfg.state);
+          const audit = runComplianceAudit(cfg.doorType, cfg.state, {
+            controllerBrand: cfg.controllerBrand, controllerModel: cfg.controllerModel,
+            lockType: cfg.lockType, hasRex: cfg.hasRex, rexType: cfg.rexType,
+            hasDps: cfg.hasDps, hasCloser: cfg.hasCloser,
+          });
+          doorLines.push({
+            label: cfg.doorLabel,
+            doorType: cfg.doorType,
+            controller: `${cfg.controllerBrand} ${cfg.controllerModel}`,
+            lock: `${cfg.lockBrand} ${cfg.lockModel}`,
+            lockType: cfg.lockType,
+            draw: build.electrical.totalDraw.toFixed(2),
+            psu: build.electrical.minPsu.toFixed(2),
+            violations: audit.violations.filter((v) => v.severity === 'violation').length,
+            area: [cfg.area, cfg.floor, cfg.room].filter(Boolean).join(' / ') || '-',
+          });
+        }
+        const totalAcDraw = doorLines.reduce((s, d) => s + parseFloat(d.draw), 0);
+        const totalAcPsu = totalAcDraw * 1.3;
+        const totalViolations = doorLines.reduce((s, d) => s + d.violations, 0);
+        return (
+          <div className="card overflow-hidden">
+            <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-gray-800">Access Control -- Door Hardware Schedule</h3>
+                <div className="flex items-center gap-4 text-xs text-gray-500">
+                  <span>Doors: <strong className="text-gray-900">{doorLines.length}</strong></span>
+                  <span>Total Draw: <strong className="text-gray-900">{totalAcDraw.toFixed(2)}A</strong></span>
+                  <span>Min PSU: <strong className="text-gray-900">{totalAcPsu.toFixed(2)}A</strong></span>
+                  {totalViolations > 0 && (
+                    <span className="inline-flex px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">{totalViolations} Violation(s)</span>
+                  )}
+                </div>
+              </div>
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Door</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Type</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Controller</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Lock</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Draw</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Status</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Location</th>
+                </tr>
+              </thead>
+              <tbody>
+                {doorLines.map((door, i) => (
+                  <tr key={i} className="border-b border-gray-100">
+                    <td className="px-4 py-2 font-medium text-gray-900">{door.label}</td>
+                    <td className="px-4 py-2 text-gray-700">{door.doorType}</td>
+                    <td className="px-4 py-2 text-gray-700">{door.controller}</td>
+                    <td className="px-4 py-2 text-gray-700">{door.lock}</td>
+                    <td className="px-4 py-2 font-bold text-gray-900">{door.draw}A</td>
+                    <td className="px-4 py-2">
+                      <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${door.violations > 0 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                        {door.violations > 0 ? `${door.violations} Fail` : 'PASS'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2 text-gray-400 text-xs">{door.area}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })()}
+
+      {/* Infrastructure (only if cameras) */}
+      {cameraCount > 0 && (
+        <>
+          <div className="card overflow-hidden">
+            <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
+              <h3 className="text-sm font-semibold text-gray-800">Storage -- RAID 5 ({cameraCount} cameras, 4MP, 15fps, H.265, 30d)</h3>
+            </div>
+            <div className="p-4 flex gap-8 text-sm">
+              <div><span className="text-xs text-gray-400 uppercase">Raw Storage</span><p className="font-bold text-gray-900">{rawTB.toFixed(2)} TB</p></div>
+              <div><span className="text-xs text-gray-400 uppercase">Bandwidth</span><p className="font-bold text-gray-900">{totalMbps.toFixed(1)} Mbps</p></div>
+            </div>
+            <table className="w-full text-sm">
+              <thead><tr className="bg-gray-50 border-b border-gray-200">
+                <th className="text-left px-3 py-2 font-medium text-gray-600">Drive</th>
+                <th className="text-left px-3 py-2 font-medium text-gray-600">Qty</th>
+                <th className="text-left px-3 py-2 font-medium text-gray-600">Raw</th>
+                <th className="text-left px-3 py-2 font-medium text-gray-600">Usable</th>
+                <th className="text-left px-3 py-2 font-medium text-gray-600">Write Load</th>
+                <th className="text-left px-3 py-2 font-medium text-gray-600">Status</th>
+              </tr></thead>
+              <tbody>
+                {raidRows.map((row) => (
+                  <tr key={row.driveSize} className="border-b border-gray-100">
+                    <td className="px-3 py-2 font-medium text-gray-900">{row.driveSize} TB</td>
+                    <td className="px-3 py-2 text-gray-700">{row.total} ({row.dataDrives}D+1P)</td>
+                    <td className="px-3 py-2 text-gray-500">{row.rawLabel} TB</td>
+                    <td className="px-3 py-2 text-gray-700">{row.usable.toFixed(1)} TB</td>
+                    <td className="px-3 py-2 text-gray-500">{row.writeLoad.toFixed(0)} Mbps</td>
+                    <td className="px-3 py-2">
+                      <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${row.status === 'STABLE' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{row.status}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="card p-4">
+              <h3 className="text-sm font-semibold text-gray-800 mb-3">Network</h3>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between"><span className="text-gray-500">Throughput</span><span className="font-bold text-gray-900">{totalMbps.toFixed(1)} Mbps</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Uplink</span><span className="font-bold text-gray-900">{uplink}</span></div>
+              </div>
+            </div>
+            <div className="card p-4">
+              <h3 className="text-sm font-semibold text-gray-800 mb-3">PoE Budget</h3>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between"><span className="text-gray-500">Total</span><span className="font-bold text-gray-900">{totalWatts}W ({totalWattsSafe.toFixed(0)}W w/ safety)</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Standard</span><span className="font-bold text-gray-900">802.3at (PoE+)</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div className="card p-4">
+            <h3 className="text-sm font-semibold text-gray-800 mb-3">Cloud Replication</h3>
+            <div className="grid grid-cols-3 gap-4 text-sm">
+              <div><span className="text-xs text-gray-400 uppercase">Upload</span><p className="font-bold text-gray-900">{cloudUpload.toFixed(1)} Mbps</p></div>
+              <div><span className="text-xs text-gray-400 uppercase">ISP Tier</span><p className="font-bold text-gray-900">{cloudUpload <= 35 ? 'Business Cable' : cloudUpload <= 100 ? 'Mid-Tier Fiber' : 'Enterprise Fiber'}</p></div>
+              <div><span className="text-xs text-gray-400 uppercase">Monthly</span><p className="font-bold text-gray-900">{monthlyTB.toFixed(1)} TB/mo</p></div>
+            </div>
+          </div>
+
+          <div className="card p-4">
+            <h3 className="text-sm font-semibold text-gray-800 mb-3">5-Year TCO (10TB Drives)</h3>
+            <div className="grid grid-cols-2 gap-6 text-sm">
+              <div className={`p-3 rounded border ${localCost <= cloudCost ? 'border-green-300 bg-green-50' : 'border-gray-200'}`}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-semibold text-gray-800">Local</span>
+                  {localCost <= cloudCost && <span className="text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded">Best Value</span>}
+                </div>
+                <p className="text-xl font-bold text-gray-900">${localCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+              </div>
+              <div className={`p-3 rounded border ${cloudCost < localCost ? 'border-green-300 bg-green-50' : 'border-gray-200'}`}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-semibold text-gray-800">Cloud</span>
+                  {cloudCost < localCost && <span className="text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded">Best Value</span>}
+                </div>
+                <p className="text-xl font-bold text-gray-900">${cloudCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ===== SOW Tab =====
+
+function SOWTab({ designId }: { designId: string }) {
+  const { accessToken } = useAuthStore();
+  const [sow, setSOW] = useState<SOW | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    setLoading(true);
+    designsApi.sow(accessToken, designId).then((res) => setSOW(res.data)).catch(() => {}).finally(() => setLoading(false));
+  }, [accessToken, designId]);
+
+  if (loading) return <div className="card p-8 text-center text-sm text-gray-400">Loading...</div>;
+  if (!sow) return <div className="card p-8 text-center text-sm text-gray-500">Failed to load statement of work</div>;
+
+  return (
+    <div className="space-y-4">
+      <div className="card p-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+          <div><span className="text-xs text-gray-400 uppercase tracking-wide">Design</span><p className="font-medium text-gray-900">{sow.designName} V{sow.version}</p></div>
+          <div><span className="text-xs text-gray-400 uppercase tracking-wide">Created By</span><p className="text-gray-700">{sow.createdBy}</p></div>
+          <div><span className="text-xs text-gray-400 uppercase tracking-wide">Total Devices</span><p className="font-bold text-gray-900">{sow.totalDevices}</p></div>
+          {sow.opportunity && (
+            <div>
+              <span className="text-xs text-gray-400 uppercase tracking-wide">Project</span>
+              <p className="text-gray-700">{sow.opportunity.customerName} - {sow.opportunity.projectName}</p>
+              {sow.opportunity.installAddress && (
+                <p className="text-xs text-gray-400 mt-0.5">{sow.opportunity.installAddress}, {sow.opportunity.installCity} {sow.opportunity.installState} {sow.opportunity.installZip}</p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {sow.areas.length === 0 ? (
+        <div className="card p-8 text-center text-sm text-gray-500">No devices placed in this design</div>
+      ) : (
+        sow.areas.map((area) => (
+          <div key={area.area} className="card overflow-hidden">
+            <div className="bg-gray-800 text-white px-4 py-2"><h3 className="font-semibold text-sm">{area.area}</h3></div>
+            {area.floors.map((floor) => (
+              <div key={floor.floor}>
+                <div className="bg-gray-100 px-4 py-1.5 border-b border-gray-200">
+                  <span className="text-xs font-medium text-gray-600 uppercase tracking-wide">{floor.floor}</span>
+                </div>
+                {floor.rooms.map((room) => (
+                  <div key={room.room} className="border-b border-gray-100 last:border-0">
+                    <div className="px-4 py-1.5 bg-gray-50"><span className="text-xs font-medium text-gray-500">{room.room}</span></div>
+                    {room.devices.map((device) => (
+                      <div key={device.id} className="px-6 py-3 border-b border-gray-50 last:border-0">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-gray-900">{device.manufacturer} {device.model}</p>
+                            <p className="text-xs text-gray-400 font-mono">{device.partNumber}</p>
+                          </div>
+                          <span className="text-xs text-gray-400 capitalize">{CATEGORY_LABELS[device.category] || device.category}</span>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2 text-xs">
+                          {device.cameraHeight != null && <div><span className="text-gray-400">Height:</span> <span className="text-gray-600">{device.cameraHeight} ft</span></div>}
+                          {device.fovAngle != null && <div><span className="text-gray-400">FOV:</span> <span className="text-gray-600">{device.fovAngle} deg</span></div>}
+                          {device.fovDistance != null && <div><span className="text-gray-400">Distance:</span> <span className="text-gray-600">{device.fovDistance} ft</span></div>}
+                          {device.tilt != null && <div><span className="text-gray-400">Tilt:</span> <span className="text-gray-600">{device.tilt} deg</span></div>}
+                        </div>
+                        {device.notes && <p className="text-xs text-gray-500 mt-1"><span className="font-medium">Notes:</span> {device.notes}</p>}
+                        {device.installDetails && <p className="text-xs text-gray-500 mt-0.5"><span className="font-medium">Install:</span> {device.installDetails}</p>}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+// ===== Door Builder Inline Panel (access_control devices in AddDeviceModal) =====
+
+function DoorBuilderInlinePanel() {
+  const [expanded, setExpanded] = useState(false);
+  const [ctrlBrand, setCtrlBrand] = useState('Verkada');
+  const [ctrlModel, setCtrlModel] = useState('AC42');
+  const [doorType, setDoorType] = useState<string>('Standard Interior');
+  const [lockBrand, setLockBrand] = useState('Command Access');
+  const [lockModel, setLockModel] = useState('ML1 Mortise');
+  const [hasAdo, setHasAdo] = useState(false);
+  const [stateKey, setStateKey] = useState(AC_STATE_KEYS[0]);
+
+  const ctrlModels = Object.keys(AC_POWER_SPECS[ctrlBrand] || {});
+  const lockModels = Object.keys(AC_POWER_SPECS[lockBrand] || {});
+
+  const result = calculateBuild(ctrlBrand, ctrlModel, doorType, lockBrand, lockModel, hasAdo, false, stateKey);
+
+  return (
+    <div className="border border-teal-200 rounded bg-teal-50/50">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between px-4 py-2 text-sm font-medium text-teal-800"
+      >
+        <span>Door Builder -- Power & Wiring</span>
+        <span className="text-xs text-teal-500">{expanded ? 'collapse' : 'expand'}</span>
+      </button>
+      {expanded && (
+        <div className="px-4 pb-3 space-y-3">
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="text-xs text-gray-500">Door Type</label>
+              <select className="input-field text-xs py-1" value={doorType} onChange={(e) => setDoorType(e.target.value)}>
+                {AC_DOOR_TYPES.map((dt) => <option key={dt} value={dt}>{dt}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500">Jurisdiction</label>
+              <select className="input-field text-xs py-1" value={stateKey} onChange={(e) => setStateKey(e.target.value)}>
+                {AC_STATE_KEYS.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500">ADA Auto-Op</label>
+              <label className="flex items-center gap-1 mt-1 text-xs text-gray-600 cursor-pointer">
+                <input type="checkbox" checked={hasAdo} onChange={(e) => setHasAdo(e.target.checked)} className="rounded border-gray-300" />
+                Yes
+              </label>
+            </div>
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            <div>
+              <label className="text-xs text-gray-500">Controller</label>
+              <select className="input-field text-xs py-1" value={ctrlBrand} onChange={(e) => { setCtrlBrand(e.target.value); setCtrlModel(Object.keys(AC_POWER_SPECS[e.target.value] || {})[0] || ''); }}>
+                {AC_CTRL_BRANDS.map((b) => <option key={b} value={b}>{b}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500">Model</label>
+              <select className="input-field text-xs py-1" value={ctrlModel} onChange={(e) => setCtrlModel(e.target.value)}>
+                {ctrlModels.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500">Lock</label>
+              <select className="input-field text-xs py-1" value={lockBrand} onChange={(e) => { setLockBrand(e.target.value); setLockModel(Object.keys(AC_POWER_SPECS[e.target.value] || {})[0] || ''); }}>
+                {AC_LOCK_BRANDS.map((b) => <option key={b} value={b}>{b}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500">Model</label>
+              <select className="input-field text-xs py-1" value={lockModel} onChange={(e) => setLockModel(e.target.value)}>
+                {lockModels.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Results summary */}
+          <div className="grid grid-cols-4 gap-2 text-xs">
+            <div><span className="text-gray-400">Controller</span><p className="font-semibold text-gray-900">{result.electrical.controllerDraw.toFixed(2)}A</p></div>
+            <div><span className="text-gray-400">Lock</span><p className="font-semibold text-gray-900">{result.electrical.lockDraw.toFixed(2)}A</p></div>
+            <div><span className="text-gray-400">Total</span><p className="font-semibold text-gray-900">{result.electrical.totalDraw.toFixed(2)}A</p></div>
+            <div><span className="text-gray-400">Min PSU</span><p className="font-semibold text-gray-900">{result.electrical.minPsu.toFixed(2)}A</p></div>
+          </div>
+
+          {/* Wiring schedule mini */}
+          <div className="text-xs space-y-0.5">
+            {result.wiringSchedule.map((row, i) => (
+              <div key={i} className="flex gap-2">
+                <span className="text-gray-500 w-28 shrink-0">{row.component}</span>
+                <span className="text-teal-700 font-mono">{row.spec.gauge} {row.spec.conductors} {row.spec.type}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Violations */}
+          {result.violations.length > 0 && (
+            <div className="space-y-1">
+              {result.violations.map((v, i) => (
+                <div key={i} className="flex items-start gap-2 text-xs">
+                  <span className="inline-flex px-1.5 py-0.5 rounded font-medium bg-red-100 text-red-700 shrink-0">{v.code}</span>
+                  <span className="text-gray-600">{v.message}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ===== Compliance Inline Panel (access_control devices in AddDeviceModal) =====
+
+function ComplianceInlinePanel() {
+  const [expanded, setExpanded] = useState(false);
+  const [doorType, setDoorType] = useState<string>('Standard Interior');
+  const [stateKey, setStateKey] = useState(AC_STATE_KEYS[0]);
+  const [lockType, setLockType] = useState<string>('Electric Strike (Fail-Secure)');
+  const [hasRex, setHasRex] = useState(true);
+  const [rexType, setRexType] = useState('PIR Motion Sensor');
+  const [hasDps, setHasDps] = useState(true);
+  const [hasCloser, setHasCloser] = useState(false);
+
+  const audit = runComplianceAudit(doorType, stateKey, {
+    controllerBrand: 'Verkada',
+    controllerModel: 'AC42',
+    lockType,
+    hasRex,
+    rexType,
+    hasDps,
+    hasCloser,
+  });
+
+  const violationCount = audit.violations.filter((v) => v.severity === 'violation').length;
+
+  return (
+    <div className="border border-rose-200 rounded bg-rose-50/50">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between px-4 py-2 text-sm font-medium text-rose-800"
+      >
+        <span>
+          Compliance Audit
+          {violationCount > 0 && <span className="ml-2 text-xs font-semibold text-red-600">{violationCount} violation(s)</span>}
+          {violationCount === 0 && expanded && <span className="ml-2 text-xs font-semibold text-green-600">PASS</span>}
+        </span>
+        <span className="text-xs text-rose-500">{expanded ? 'collapse' : 'expand'}</span>
+      </button>
+      {expanded && (
+        <div className="px-4 pb-3 space-y-3">
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="text-xs text-gray-500">Door Type</label>
+              <select className="input-field text-xs py-1" value={doorType} onChange={(e) => setDoorType(e.target.value)}>
+                {AC_DOOR_TYPES.map((dt) => <option key={dt} value={dt}>{dt}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500">Jurisdiction</label>
+              <select className="input-field text-xs py-1" value={stateKey} onChange={(e) => setStateKey(e.target.value)}>
+                {AC_STATE_KEYS.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500">Lock Type</label>
+              <select className="input-field text-xs py-1" value={lockType} onChange={(e) => setLockType(e.target.value)}>
+                {AC_LOCK_TYPES.map((lt) => <option key={lt} value={lt}>{lt}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-4">
+            <label className="flex items-center gap-1 text-xs text-gray-600 cursor-pointer">
+              <input type="checkbox" checked={hasRex} onChange={(e) => setHasRex(e.target.checked)} className="rounded border-gray-300" />
+              REX
+            </label>
+            {hasRex && (
+              <select className="input-field text-xs py-1 w-40" value={rexType} onChange={(e) => setRexType(e.target.value)}>
+                {AC_REX_TYPES.map((rt) => <option key={rt} value={rt}>{rt}</option>)}
+              </select>
+            )}
+            <label className="flex items-center gap-1 text-xs text-gray-600 cursor-pointer">
+              <input type="checkbox" checked={hasDps} onChange={(e) => setHasDps(e.target.checked)} className="rounded border-gray-300" />
+              DPS
+            </label>
+            <label className="flex items-center gap-1 text-xs text-gray-600 cursor-pointer">
+              <input type="checkbox" checked={hasCloser} onChange={(e) => setHasCloser(e.target.checked)} className="rounded border-gray-300" />
+              Door Closer
+            </label>
+          </div>
+
+          {/* Status */}
+          <div className={`px-3 py-2 rounded text-xs font-semibold ${violationCount > 0 ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
+            {violationCount > 0
+              ? `FAIL -- ${violationCount} violation(s)`
+              : `PASS -- ${audit.passCount} checks passed`}
+          </div>
+
+          {/* Violations */}
+          {audit.violations.length > 0 && (
+            <div className="space-y-1">
+              {audit.violations.map((v, i) => (
+                <div key={i} className="flex items-start gap-2 text-xs">
+                  <span className={`inline-flex px-1.5 py-0.5 rounded font-medium shrink-0 ${
+                    v.severity === 'violation' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                  }`}>
+                    {v.severity === 'violation' ? 'VIOLATION' : 'WARNING'}
+                  </span>
+                  <span className="text-gray-600">[{v.code}] {v.message}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ===== Access Control Tab =====
+
+function AccessControlTab({
+  design,
+  opp,
+}: {
+  design: DesignDetail;
+  opp: Opportunity | null;
+}) {
+  const [doorConfigs, setDoorConfigs] = useState<DoorConfig[]>(() => loadDoorConfigs(design.id));
+  const [showAddDoor, setShowAddDoor] = useState(false);
+  const [editingDoor, setEditingDoor] = useState<DoorConfig | null>(null);
+
+  const acDevices = design.placedDevices.filter((pd) => pd.device?.category === 'access_control');
+
+  function handleSaveConfig(config: DoorConfig) {
+    const updated = config.id
+      ? doorConfigs.map((c) => (c.id === config.id ? config : c))
+      : [...doorConfigs, { ...config, id: generateDoorId() }];
+    setDoorConfigs(updated);
+    saveDoorConfigs(design.id, updated);
+    setShowAddDoor(false);
+    setEditingDoor(null);
+  }
+
+  function handleDeleteConfig(id: string) {
+    const updated = doorConfigs.filter((c) => c.id !== id);
+    setDoorConfigs(updated);
+    saveDoorConfigs(design.id, updated);
+  }
+
+  // Calculate totals
+  const totalDraw = doorConfigs.reduce((sum, cfg) => {
+    const build = calculateBuild(
+      cfg.controllerBrand, cfg.controllerModel, cfg.doorType,
+      cfg.lockBrand, cfg.lockModel, cfg.hasAdo, cfg.isMantrap, cfg.state,
+    );
+    return sum + build.electrical.totalDraw;
+  }, 0);
+
+  const totalPsu = totalDraw * 1.3;
+  const allAudits = doorConfigs.map((cfg) => ({
+    config: cfg,
+    audit: runComplianceAudit(cfg.doorType, cfg.state, {
+      controllerBrand: cfg.controllerBrand,
+      controllerModel: cfg.controllerModel,
+      lockType: cfg.lockType,
+      hasRex: cfg.hasRex,
+      rexType: cfg.rexType,
+      hasDps: cfg.hasDps,
+      hasCloser: cfg.hasCloser,
+    }),
+    build: calculateBuild(
+      cfg.controllerBrand, cfg.controllerModel, cfg.doorType,
+      cfg.lockBrand, cfg.lockModel, cfg.hasAdo, cfg.isMantrap, cfg.state,
+    ),
+  }));
+
+  const totalViolations = allAudits.reduce((sum, a) => sum + a.audit.violations.filter((v) => v.severity === 'violation').length, 0);
+
+  return (
+    <div className="space-y-4">
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div className="card p-4 border-l-4 border-l-blue-500">
+          <p className="text-xs text-gray-400 uppercase tracking-wide">ACS Devices</p>
+          <p className="text-2xl font-bold text-gray-900">{acDevices.length}</p>
+        </div>
+        <div className="card p-4 border-l-4 border-l-teal-500">
+          <p className="text-xs text-gray-400 uppercase tracking-wide">Door Configs</p>
+          <p className="text-2xl font-bold text-gray-900">{doorConfigs.length}</p>
+        </div>
+        <div className="card p-4 border-l-4 border-l-amber-500">
+          <p className="text-xs text-gray-400 uppercase tracking-wide">Total Draw</p>
+          <p className="text-2xl font-bold text-gray-900">{totalDraw.toFixed(2)}A</p>
+        </div>
+        <div className="card p-4 border-l-4 border-l-green-500">
+          <p className="text-xs text-gray-400 uppercase tracking-wide">Min PSU</p>
+          <p className="text-2xl font-bold text-gray-900">{totalPsu.toFixed(2)}A</p>
+        </div>
+        <div className={`card p-4 border-l-4 ${totalViolations > 0 ? 'border-l-red-500' : 'border-l-green-500'}`}>
+          <p className="text-xs text-gray-400 uppercase tracking-wide">Violations</p>
+          <p className={`text-2xl font-bold ${totalViolations > 0 ? 'text-red-700' : 'text-green-700'}`}>{totalViolations}</p>
+        </div>
+      </div>
+
+      {/* OPP link info */}
+      {opp && (
+        <div className="card p-3 bg-gray-50">
+          <p className="text-xs text-gray-500">
+            Door configurations saved to design <strong>{design.name}</strong> (linked to OPP <strong className="font-mono">{opp.oppNumber}</strong>).
+            Configurations persist with this design and will export to the Hardware Schedule.
+          </p>
+        </div>
+      )}
+
+      {/* Add Door Button */}
+      <div className="flex gap-2">
+        <button onClick={() => setShowAddDoor(true)} className="btn-primary text-sm">
+          Add Door Configuration
+        </button>
+      </div>
+
+      {/* Door Configs Table */}
+      {doorConfigs.length === 0 ? (
+        <div className="card p-8 text-center">
+          <p className="text-sm text-gray-500 mb-3">No door configurations yet</p>
+          <p className="text-xs text-gray-400">Add a door configuration to see power calculations, wiring schedules, and compliance audits.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {allAudits.map(({ config: cfg, audit, build }) => {
+            const vCount = audit.violations.filter((v) => v.severity === 'violation').length;
+            return (
+              <div key={cfg.id} className="card overflow-hidden">
+                <div className={`px-4 py-2 border-b border-gray-200 flex items-center justify-between ${vCount > 0 ? 'bg-red-50' : 'bg-green-50'}`}>
+                  <div className="flex items-center gap-3">
+                    <h3 className="text-sm font-semibold text-gray-800">{cfg.doorLabel}</h3>
+                    <span className="text-xs text-gray-500">{cfg.doorType}</span>
+                    <span className="text-xs text-gray-400">{cfg.state}</span>
+                    <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${vCount > 0 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                      {vCount > 0 ? `${vCount} Violation(s)` : 'COMPLIANT'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setEditingDoor(cfg)} className="text-primary-600 hover:text-primary-700 text-xs font-medium">Edit</button>
+                    <button onClick={() => handleDeleteConfig(cfg.id!)} className="text-red-500 hover:text-red-700 text-xs font-medium">Remove</button>
+                  </div>
+                </div>
+                <div className="p-4 space-y-3">
+                  {/* Power & Config Summary */}
+                  <div className="grid grid-cols-2 md:grid-cols-6 gap-3 text-xs">
+                    <div><span className="text-gray-400">Controller</span><p className="font-medium text-gray-900">{cfg.controllerBrand} {cfg.controllerModel}</p></div>
+                    <div><span className="text-gray-400">Lock</span><p className="font-medium text-gray-900">{cfg.lockBrand} {cfg.lockModel}</p></div>
+                    <div><span className="text-gray-400">Lock Type</span><p className="font-medium text-gray-900">{cfg.lockType}</p></div>
+                    <div><span className="text-gray-400">Total Draw</span><p className="font-bold text-gray-900">{build.electrical.totalDraw.toFixed(2)}A</p></div>
+                    <div><span className="text-gray-400">Min PSU</span><p className="font-bold text-gray-900">{build.electrical.minPsu.toFixed(2)}A</p></div>
+                    <div><span className="text-gray-400">Location</span><p className="font-medium text-gray-700">{[cfg.area, cfg.floor, cfg.room].filter(Boolean).join(' / ') || '-'}</p></div>
+                  </div>
+
+                  {/* Wiring Schedule */}
+                  <div className="text-xs">
+                    <p className="font-medium text-gray-600 mb-1">Wiring Schedule</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-0.5">
+                      {build.wiringSchedule.map((row, i) => (
+                        <div key={i} className="flex gap-2">
+                          <span className="text-gray-500 w-28 shrink-0">{row.component}</span>
+                          <span className="text-teal-700 font-mono">{row.spec.gauge} {row.spec.conductors} {row.spec.type}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Violations */}
+                  {audit.violations.length > 0 && (
+                    <div className="space-y-1">
+                      {audit.violations.map((v, i) => (
+                        <div key={i} className="flex items-start gap-2 text-xs">
+                          <span className={`inline-flex px-1.5 py-0.5 rounded font-medium shrink-0 ${
+                            v.severity === 'violation' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                          }`}>
+                            {v.severity === 'violation' ? 'VIOLATION' : 'WARNING'}
+                          </span>
+                          <span className="text-gray-600">[{v.code}] {v.message}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Add/Edit Door Modal */}
+      {(showAddDoor || editingDoor) && (
+        <DoorConfigModal
+          existing={editingDoor}
+          onSave={handleSaveConfig}
+          onClose={() => { setShowAddDoor(false); setEditingDoor(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ===== Door Config Modal (Add/Edit) =====
+
+function DoorConfigModal({
+  existing,
+  onSave,
+  onClose,
+}: {
+  existing: DoorConfig | null;
+  onSave: (config: DoorConfig) => void;
+  onClose: () => void;
+}) {
+  const [doorLabel, setDoorLabel] = useState(existing?.doorLabel || '');
+  const [doorType, setDoorType] = useState(existing?.doorType || 'Standard Interior');
+  const [stateKey, setStateKey] = useState(existing?.state || AC_STATE_KEYS[0]);
+  const [ctrlBrand, setCtrlBrand] = useState(existing?.controllerBrand || 'Verkada');
+  const [ctrlModel, setCtrlModel] = useState(existing?.controllerModel || 'AC42');
+  const [lockBrand, setLockBrand] = useState(existing?.lockBrand || 'Command Access');
+  const [lockModel, setLockModel] = useState(existing?.lockModel || 'ML1 Mortise');
+  const [lockType, setLockType] = useState(existing?.lockType || 'Electric Strike (Fail-Secure)');
+  const [hasRex, setHasRex] = useState(existing?.hasRex ?? true);
+  const [rexType, setRexType] = useState(existing?.rexType || 'PIR Motion Sensor');
+  const [hasDps, setHasDps] = useState(existing?.hasDps ?? true);
+  const [hasCloser, setHasCloser] = useState(existing?.hasCloser ?? false);
+  const [hasAdo, setHasAdo] = useState(existing?.hasAdo ?? false);
+  const [isMantrap, setIsMantrap] = useState(existing?.isMantrap ?? false);
+  const [area, setArea] = useState(existing?.area || '');
+  const [floor, setFloor] = useState(existing?.floor || '');
+  const [room, setRoom] = useState(existing?.room || '');
+  const [notes, setNotes] = useState(existing?.notes || '');
+
+  const ctrlModels = Object.keys(AC_POWER_SPECS[ctrlBrand] || {});
+  const lockModels = Object.keys(AC_POWER_SPECS[lockBrand] || {});
+
+  // Live build preview
+  const build = calculateBuild(ctrlBrand, ctrlModel, doorType, lockBrand, lockModel, hasAdo, isMantrap, stateKey);
+  const audit = runComplianceAudit(doorType, stateKey, {
+    controllerBrand: ctrlBrand, controllerModel: ctrlModel, lockType,
+    hasRex, rexType, hasDps, hasCloser,
+  });
+  const vCount = audit.violations.filter((v) => v.severity === 'violation').length;
+
+  function handleSave() {
+    if (!doorLabel.trim()) return;
+    onSave({
+      id: existing?.id,
+      doorLabel: doorLabel.trim(),
+      doorType, state: stateKey,
+      controllerBrand: ctrlBrand, controllerModel: ctrlModel,
+      lockBrand, lockModel, lockType,
+      hasRex, rexType, hasDps, hasCloser, hasAdo, isMantrap,
+      area: area || undefined, floor: floor || undefined,
+      room: room || undefined, notes: notes || undefined,
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-8 bg-black/30">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+          <h2 className="text-lg font-semibold text-gray-900">{existing ? 'Edit Door Configuration' : 'Add Door Configuration'}</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">x</button>
+        </div>
+        <div className="p-6 space-y-4">
+          {/* Door Label */}
+          <div>
+            <label className="label">Door Label</label>
+            <input type="text" className="input-field" placeholder="e.g. Main Lobby Entry, Stairwell B Door 2" value={doorLabel} onChange={(e) => setDoorLabel(e.target.value)} autoFocus />
+          </div>
+
+          {/* Door & Jurisdiction */}
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className="label">Door Type</label>
+              <select className="input-field text-sm" value={doorType} onChange={(e) => setDoorType(e.target.value)}>
+                {AC_DOOR_TYPES.map((dt) => <option key={dt} value={dt}>{dt}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Jurisdiction</label>
+              <select className="input-field text-sm" value={stateKey} onChange={(e) => setStateKey(e.target.value)}>
+                {AC_STATE_KEYS.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Lock Type</label>
+              <select className="input-field text-sm" value={lockType} onChange={(e) => setLockType(e.target.value)}>
+                {AC_LOCK_TYPES.map((lt) => <option key={lt} value={lt}>{lt}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Controller & Lock Hardware */}
+          <div className="grid grid-cols-4 gap-4">
+            <div>
+              <label className="label">Controller Brand</label>
+              <select className="input-field text-sm" value={ctrlBrand} onChange={(e) => { setCtrlBrand(e.target.value); setCtrlModel(Object.keys(AC_POWER_SPECS[e.target.value] || {})[0] || ''); }}>
+                {AC_CTRL_BRANDS.map((b) => <option key={b} value={b}>{b}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Controller Model</label>
+              <select className="input-field text-sm" value={ctrlModel} onChange={(e) => setCtrlModel(e.target.value)}>
+                {ctrlModels.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Lock Brand</label>
+              <select className="input-field text-sm" value={lockBrand} onChange={(e) => { setLockBrand(e.target.value); setLockModel(Object.keys(AC_POWER_SPECS[e.target.value] || {})[0] || ''); }}>
+                {AC_LOCK_BRANDS.map((b) => <option key={b} value={b}>{b}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Lock Model</label>
+              <select className="input-field text-sm" value={lockModel} onChange={(e) => setLockModel(e.target.value)}>
+                {lockModels.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Options */}
+          <div className="flex flex-wrap gap-4">
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <input type="checkbox" checked={hasRex} onChange={(e) => setHasRex(e.target.checked)} className="rounded border-gray-300" />
+              REX Device
+            </label>
+            {hasRex && (
+              <select className="input-field text-sm w-48" value={rexType} onChange={(e) => setRexType(e.target.value)}>
+                {AC_REX_TYPES.map((rt) => <option key={rt} value={rt}>{rt}</option>)}
+              </select>
+            )}
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <input type="checkbox" checked={hasDps} onChange={(e) => setHasDps(e.target.checked)} className="rounded border-gray-300" />
+              DPS
+            </label>
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <input type="checkbox" checked={hasCloser} onChange={(e) => setHasCloser(e.target.checked)} className="rounded border-gray-300" />
+              Door Closer
+            </label>
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <input type="checkbox" checked={hasAdo} onChange={(e) => setHasAdo(e.target.checked)} className="rounded border-gray-300" />
+              ADA Auto-Operator
+            </label>
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <input type="checkbox" checked={isMantrap} onChange={(e) => setIsMantrap(e.target.checked)} className="rounded border-gray-300" />
+              Mantrap (2 doors)
+            </label>
+          </div>
+
+          {/* Location */}
+          <div className="grid grid-cols-3 gap-4">
+            <div><label className="label">Area</label><input type="text" className="input-field" placeholder="e.g. Building A" value={area} onChange={(e) => setArea(e.target.value)} /></div>
+            <div><label className="label">Floor</label><input type="text" className="input-field" placeholder="e.g. Floor 1" value={floor} onChange={(e) => setFloor(e.target.value)} /></div>
+            <div><label className="label">Room</label><input type="text" className="input-field" placeholder="e.g. Main Lobby" value={room} onChange={(e) => setRoom(e.target.value)} /></div>
+          </div>
+
+          <div>
+            <label className="label">Notes</label>
+            <textarea className="input-field" rows={2} placeholder="Door-specific notes..." value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </div>
+
+          {/* Live Preview */}
+          <div className="border border-gray-200 rounded p-3 bg-gray-50 space-y-2">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-semibold text-gray-600 uppercase">Live Preview</h4>
+              <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${vCount > 0 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                {vCount > 0 ? `${vCount} Violation(s)` : 'COMPLIANT'}
+              </span>
+            </div>
+            <div className="grid grid-cols-4 gap-3 text-xs">
+              <div><span className="text-gray-400">Controller</span><p className="font-bold text-gray-900">{build.electrical.controllerDraw.toFixed(2)}A</p></div>
+              <div><span className="text-gray-400">Lock</span><p className="font-bold text-gray-900">{build.electrical.lockDraw.toFixed(2)}A</p></div>
+              <div><span className="text-gray-400">Total</span><p className="font-bold text-gray-900">{build.electrical.totalDraw.toFixed(2)}A</p></div>
+              <div><span className="text-gray-400">Min PSU</span><p className="font-bold text-gray-900">{build.electrical.minPsu.toFixed(2)}A</p></div>
+            </div>
+            {audit.violations.length > 0 && (
+              <div className="space-y-1 mt-2">
+                {audit.violations.slice(0, 3).map((v, i) => (
+                  <div key={i} className="flex items-start gap-2 text-xs">
+                    <span className={`inline-flex px-1 py-0.5 rounded font-medium shrink-0 ${v.severity === 'violation' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
+                      {v.severity === 'violation' ? 'FAIL' : 'WARN'}
+                    </span>
+                    <span className="text-gray-600">{v.message}</span>
+                  </div>
+                ))}
+                {audit.violations.length > 3 && (
+                  <p className="text-xs text-gray-400">+{audit.violations.length - 3} more</p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200">
+          <button onClick={onClose} className="btn-secondary text-sm">Cancel</button>
+          <button
+            onClick={handleSave}
+            disabled={!doorLabel.trim()}
+            className="btn-primary text-sm"
+          >
+            {existing ? 'Save Changes' : 'Add Door'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ===== Helpers =====
+
+interface GroupedArea {
+  area: string;
+  floors: { floor: string; rooms: { room: string; devices: PlacedDeviceData[] }[] }[];
+}
+
+function groupDevicesByLocation(devices: PlacedDeviceData[]): GroupedArea[] {
+  const areaMap = new Map<string, Map<string, Map<string, PlacedDeviceData[]>>>();
+  for (const pd of devices) {
+    const areaKey = pd.area || 'Unassigned';
+    const floorKey = pd.floor || 'Unassigned';
+    const roomKey = pd.room || 'Unassigned';
+    if (!areaMap.has(areaKey)) areaMap.set(areaKey, new Map());
+    const floors = areaMap.get(areaKey)!;
+    if (!floors.has(floorKey)) floors.set(floorKey, new Map());
+    const rooms = floors.get(floorKey)!;
+    if (!rooms.has(roomKey)) rooms.set(roomKey, []);
+    rooms.get(roomKey)!.push(pd);
+  }
+  return Array.from(areaMap.entries()).map(([area, floors]) => ({
+    area,
+    floors: Array.from(floors.entries()).map(([floor, rooms]) => ({
+      floor,
+      rooms: Array.from(rooms.entries()).map(([room, devices]) => ({ room, devices })),
+    })),
+  }));
+}

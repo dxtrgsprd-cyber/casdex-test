@@ -49,7 +49,7 @@ model User {
   phone          String?
   avatar         String?
   title          String?
-  isGlobalAdmin  Boolean   @default(false)
+  globalRole     String?   // 'global_admin' | 'global_manager' | null (no global role)
   isActive       Boolean   @default(true)
   lastLoginAt    DateTime?
   createdAt      DateTime  @default(now())
@@ -79,6 +79,7 @@ model RefreshToken {
   id        String   @id @default(cuid())
   token     String   @unique
   userId    String
+  tenantId  String?
   expiresAt DateTime
   createdAt DateTime @default(now())
 
@@ -126,7 +127,7 @@ model UserTenant {
 model Role {
   id          String  @id @default(cuid())
   tenantId    String
-  name        String  // e.g. 'admin', 'manager', 'sales', 'presales', etc.
+  name        String  // e.g. 'org_admin', 'org_manager', 'sales', 'presales', etc.
   displayName String
   isDefault   Boolean @default(false) // true for system-created default roles
   isCustom    Boolean @default(false) // true for tenant-created custom roles
@@ -557,18 +558,16 @@ model RiskAssessment {
 // ============================================================
 
 model Vendor {
-  id        String   @id @default(cuid())
-  tenantId  String
-  name      String
-  contact   String?
-  email     String?
-  phone     String?
-  website   String?
-  category  String?  // 'cameras', 'access_control', 'networking', 'av', 'sensors', 'other'
-  isActive  Boolean  @default(true)
-  notes     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(cuid())
+  tenantId   String
+  name       String
+  website    String?
+  categories Json     @default("[]") // string[] — multi-select categories
+  contacts   Json     @default("[]") // Array<{ name, email?, phone?, role? }>
+  isActive   Boolean  @default(true)
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
@@ -580,9 +579,7 @@ model Subcontractor {
   id              String   @id @default(cuid())
   tenantId        String
   companyName     String
-  primaryContact  String?
-  email           String?
-  phone           String?
+  contacts        Json     @default("[]") // Array<{ name, email?, phone?, role? }>
   trades          Json     @default("[]") // array of trade specialties
   territories     Json     @default("[]") // states/regions they cover
   isActive        Boolean  @default(true)
@@ -621,6 +618,7 @@ model Device {
   specs         Json    @default("{}") // additional specs
   mountOptions  Json    @default("[]") // compatible mount part numbers
   msrp          Float?
+  ndaaCompliant Boolean @default(false)
   isActive      Boolean @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt

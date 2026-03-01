@@ -135,7 +135,7 @@ export class OpportunitiesController {
 
   @Post(':id/project-number')
   @UseGuards(RolesGuard)
-  @Roles('admin', 'manager')
+  @Roles('org_admin', 'org_manager')
   async assignProjectNumber(
     @Param('id') id: string,
     @Body() dto: AssignProjectNumberDto,

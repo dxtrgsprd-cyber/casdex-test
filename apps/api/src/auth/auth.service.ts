@@ -8,13 +8,15 @@ import { JwtService } from '@nestjs/jwt';
 import { compare, hash } from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { PrismaService } from '../common/prisma.service';
+import { EmailService } from '../email/email.service';
+import { APP_MODULES, parseTenantSettings } from '@casdex/shared';
 
 interface TokenPayload {
   sub: string;
   email: string;
   tenantId: string;
   roles: string[];
-  isGlobalAdmin: boolean;
+  globalRole: string | null;
 }
 
 export interface AuthTokens {
@@ -28,7 +30,7 @@ export interface LoginResult extends AuthTokens {
     email: string;
     firstName: string;
     lastName: string;
-    isGlobalAdmin: boolean;
+    globalRole: string | null;
   };
   tenant: {
     id: string;
@@ -37,6 +39,7 @@ export interface LoginResult extends AuthTokens {
   };
   roles: string[];
   availableTenants: Array<{ id: string; name: string; slug: string }>;
+  enabledModules: string[];
 }
 
 @Injectable()
@@ -44,6 +47,7 @@ export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
+    private emailService: EmailService,
   ) {}
 
   async login(email: string, password: string, tenantId?: string): Promise<LoginResult> {
@@ -71,6 +75,8 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    const hasGlobalRole = !!user.globalRole;
+
     // Get available tenants
     const availableTenants = user.tenants
       .filter((ut) => ut.tenant.isActive)
@@ -80,7 +86,7 @@ export class AuthService {
         slug: ut.tenant.slug,
       }));
 
-    if (availableTenants.length === 0 && !user.isGlobalAdmin) {
+    if (availableTenants.length === 0 && !hasGlobalRole) {
       throw new ForbiddenException('No active tenant assignments');
     }
 
@@ -88,10 +94,10 @@ export class AuthService {
     let selectedTenant: typeof availableTenants[0];
     let roles: string[] = [];
 
-    if (user.isGlobalAdmin && availableTenants.length === 0) {
-      // Global admin with no tenant assignments — use a system context
-      selectedTenant = { id: 'global', name: 'Global Admin', slug: 'global' };
-      roles = ['global_admin'];
+    if (hasGlobalRole && availableTenants.length === 0) {
+      // Global user with no tenant assignments — use a system context
+      selectedTenant = { id: 'global', name: 'Global', slug: 'global' };
+      roles = [user.globalRole!];
     } else if (tenantId) {
       const found = availableTenants.find((t) => t.id === tenantId);
       if (!found) {
@@ -117,7 +123,7 @@ export class AuthService {
       email: user.email,
       tenantId: selectedTenant.id,
       roles,
-      isGlobalAdmin: user.isGlobalAdmin,
+      globalRole: user.globalRole,
     });
 
     // Update last login
@@ -126,6 +132,16 @@ export class AuthService {
       data: { lastLoginAt: new Date() },
     });
 
+    // Extract enabled modules from tenant settings
+    let enabledModules: string[] = [...APP_MODULES];
+    if (selectedTenant.id !== 'global') {
+      const matchedUserTenant = user.tenants.find((ut) => ut.tenantId === selectedTenant.id);
+      if (matchedUserTenant) {
+        const settings = parseTenantSettings(matchedUserTenant.tenant.settings);
+        enabledModules = settings.enabledModules;
+      }
+    }
+
     return {
       ...tokens,
       user: {
@@ -133,11 +149,12 @@ export class AuthService {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
-        isGlobalAdmin: user.isGlobalAdmin,
+        globalRole: user.globalRole,
       },
       tenant: selectedTenant,
       roles,
       availableTenants,
+      enabledModules,
     };
   }
 
@@ -170,18 +187,26 @@ export class AuthService {
     // Delete the used refresh token (rotation)
     await this.prisma.refreshToken.delete({ where: { id: stored.id } });
 
-    // Decode old access token to get tenant context
-    // We'll reuse the first tenant assignment as default
-    const firstTenant = stored.user.tenants[0];
-    const tenantId = firstTenant?.tenantId || 'global';
-    const roles = firstTenant ? [firstTenant.role.name] : ['global_admin'];
+    // Preserve the tenant context from the original token
+    // Fall back to first tenant assignment if stored tenantId is missing
+    const savedTenantId = stored.tenantId;
+    const matchingTenant = savedTenantId
+      ? stored.user.tenants.find((ut) => ut.tenantId === savedTenantId)
+      : null;
+    const fallbackTenant = stored.user.tenants[0];
+    const tenantId = matchingTenant?.tenantId || fallbackTenant?.tenantId || 'global';
+    const roles = matchingTenant
+      ? [matchingTenant.role.name]
+      : fallbackTenant
+        ? [fallbackTenant.role.name]
+        : stored.user.globalRole ? [stored.user.globalRole] : [];
 
     return this.generateTokens({
       sub: stored.user.id,
       email: stored.user.email,
       tenantId,
       roles,
-      isGlobalAdmin: stored.user.isGlobalAdmin,
+      globalRole: stored.user.globalRole,
     });
   }
 
@@ -203,8 +228,9 @@ export class AuthService {
       throw new UnauthorizedException('User not found');
     }
 
+    const hasGlobalRole = !!user.globalRole;
     const userTenant = user.tenants.find((ut) => ut.tenantId === tenantId);
-    if (!userTenant && !user.isGlobalAdmin) {
+    if (!userTenant && !hasGlobalRole) {
       throw new ForbiddenException('You do not have access to this organization');
     }
 
@@ -212,14 +238,16 @@ export class AuthService {
       ? { id: userTenant.tenant.id, name: userTenant.tenant.name, slug: userTenant.tenant.slug }
       : { id: tenantId, name: 'Unknown', slug: 'unknown' };
 
-    const roles = userTenant ? [userTenant.role.name] : user.isGlobalAdmin ? ['global_admin'] : [];
+    const roles = userTenant
+      ? [userTenant.role.name]
+      : hasGlobalRole ? [user.globalRole!] : [];
 
     const tokens = await this.generateTokens({
       sub: user.id,
       email: user.email,
       tenantId,
       roles,
-      isGlobalAdmin: user.isGlobalAdmin,
+      globalRole: user.globalRole,
     });
 
     const availableTenants = user.tenants
@@ -230,6 +258,23 @@ export class AuthService {
         slug: ut.tenant.slug,
       }));
 
+    // Extract enabled modules from tenant settings
+    let enabledModules: string[] = [...APP_MODULES];
+    if (userTenant) {
+      const settings = parseTenantSettings(userTenant.tenant.settings);
+      enabledModules = settings.enabledModules;
+    } else if (hasGlobalRole) {
+      // Global user browsing a tenant they're not assigned to — query directly
+      const tenantRecord = await this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { settings: true },
+      });
+      if (tenantRecord) {
+        const settings = parseTenantSettings(tenantRecord.settings);
+        enabledModules = settings.enabledModules;
+      }
+    }
+
     return {
       ...tokens,
       user: {
@@ -237,11 +282,12 @@ export class AuthService {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
-        isGlobalAdmin: user.isGlobalAdmin,
+        globalRole: user.globalRole,
       },
       tenant,
       roles,
       availableTenants,
+      enabledModules,
     };
   }
 
@@ -286,11 +332,7 @@ export class AuthService {
       },
     });
 
-    // TODO: Send email with reset link containing token
-    // For now, log it (development only)
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`Password reset token for ${email}: ${token}`);
-    }
+    this.emailService.sendPasswordReset(email, token);
   }
 
   async changePassword(userId: string, currentPassword: string, newPassword: string): Promise<void> {
@@ -344,6 +386,7 @@ export class AuthService {
       data: {
         token: refreshToken,
         userId: payload.sub,
+        tenantId: payload.tenantId,
         expiresAt,
       },
     });

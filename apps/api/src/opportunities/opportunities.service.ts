@@ -84,7 +84,7 @@ export class OpportunitiesService {
 
     // Role-based filtering: sales/presales/PM/field tech see only their assigned opps
     // Managers and admins see all
-    if (!roles.includes('admin') && !roles.includes('manager')) {
+    if (!roles.includes('org_admin') && !roles.includes('org_manager')) {
       if (query.assignedTo === 'me' || !query.assignedTo) {
         // For non-admin roles, default to showing opps they created or are assigned to
         where.OR = [
@@ -148,7 +148,11 @@ export class OpportunitiesService {
           select: { id: true, projectNumber: true, status: true, startDate: true, estimatedEndDate: true },
         },
         riskAssessments: {
-          select: { id: true, stage: true, overallScore: true, riskLevel: true, createdAt: true },
+          select: {
+            id: true, stage: true, overallScore: true, riskLevel: true,
+            cctvScore: true, acsScore: true, equipmentScore: true, installScore: true,
+            createdAt: true,
+          },
           orderBy: { createdAt: 'desc' },
         },
         statusHistory: {
@@ -174,8 +178,8 @@ export class OpportunitiesService {
   // --- Create OPP ---
 
   async create(tenantId: string, userId: string, dto: CreateOpportunityDto) {
-    // Generate OPP number: OPP-XXXXXX (sequential per tenant)
-    const oppNumber = await this.generateOppNumber(tenantId);
+    // Use provided OPP number or auto-generate
+    const oppNumber = dto.oppNumber?.trim() || await this.generateOppNumber(tenantId);
 
     const opp = await this.prisma.opportunity.create({
       data: {
@@ -225,6 +229,7 @@ export class OpportunitiesService {
     await this.prisma.opportunity.update({
       where: { id: opp.id },
       data: {
+        oppNumber: dto.oppNumber,
         customerName: dto.customerName,
         customerContact: dto.customerContact,
         customerEmail: dto.customerEmail,
@@ -467,7 +472,7 @@ export class OpportunitiesService {
 
     // Business rule: delete requires cross-role approval
     // Sales delete needs presales approval, presales delete needs sales approval
-    if (!roles.includes('admin') && !roles.includes('manager')) {
+    if (!roles.includes('org_admin') && !roles.includes('org_manager')) {
       // Check for an approved delete_approval
       const approved = await this.prisma.approval.findFirst({
         where: { oppId: opp.id, type: 'delete_approval', status: 'approved' },
@@ -502,7 +507,7 @@ export class OpportunitiesService {
   // --- Dashboard Metrics ---
 
   async getMetrics(tenantId: string, userId: string, roles: string[]) {
-    const isAdmin = roles.includes('admin') || roles.includes('manager');
+    const isAdmin = roles.includes('org_admin') || roles.includes('org_manager');
     const userFilter = isAdmin ? {} : {
       OR: [
         { createdById: userId },
@@ -729,7 +734,7 @@ export class OpportunitiesService {
       const managers = await this.prisma.userTenant.findMany({
         where: {
           tenantId: (opp as { id: string; oppNumber: string; projectName: string } & Record<string, unknown>)['tenantId'] as string || '',
-          role: { name: 'manager' },
+          role: { name: 'org_manager' },
           isActive: true,
         },
         select: { userId: true },

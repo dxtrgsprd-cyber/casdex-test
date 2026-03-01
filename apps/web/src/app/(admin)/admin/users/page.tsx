@@ -11,7 +11,7 @@ interface TenantUser {
   firstName: string;
   lastName: string;
   isActive: boolean;
-  isGlobalAdmin: boolean;
+  globalRole: string | null;
   lastLoginAt: string | null;
   createdAt: string;
   role: { name: string; displayName: string };

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '@/stores/auth-store';
 import { authApi, usersApi, rolesApi, Role, UserListItem } from '@/lib/api';
 
-const ALL_MODULES = ['opportunities', 'survey', 'design', 'projects', 'tools', 'management'] as const;
+const ALL_MODULES = ['opportunities', 'survey', 'design', 'projects', 'tools', 'management', 'vendors', 'subcontractors'] as const;
 const ALL_ACTIONS = ['create', 'read', 'update', 'delete'] as const;
 
 const MODULE_LABELS: Record<string, string> = {
@@ -14,6 +14,8 @@ const MODULE_LABELS: Record<string, string> = {
   projects: 'Projects',
   tools: 'Tools',
   management: 'Management',
+  vendors: 'Vendors',
+  subcontractors: 'Subcontractors',
 };
 
 const ACTION_LABELS: Record<string, string> = {

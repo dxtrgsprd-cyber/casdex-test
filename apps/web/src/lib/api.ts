@@ -57,7 +57,7 @@ export interface LoginResponse {
       email: string;
       firstName: string;
       lastName: string;
-      isGlobalAdmin: boolean;
+      globalRole: string | null;
     };
     tenant: {
       id: string;
@@ -66,6 +66,7 @@ export interface LoginResponse {
     };
     roles: string[];
     availableTenants: Array<{ id: string; name: string; slug: string }>;
+    enabledModules: string[];
   };
 }
 
@@ -135,7 +136,7 @@ export interface UserListItem {
 }
 
 export interface UserDetail extends UserListItem {
-  isGlobalAdmin?: boolean;
+  globalRole?: string | null;
   role: {
     id: string;
     name: string;
@@ -293,7 +294,7 @@ export interface Opportunity {
   designs: Array<{ id: string; name: string; version: number; status: string }>;
   documents: Array<{ id: string; type: string; fileName: string; version: number; isSigned: boolean; createdAt: string }>;
   project: { id: string; projectNumber: string; status: string } | null;
-  riskAssessments: Array<{ id: string; stage: string; overallScore: number; riskLevel: string }>;
+  riskAssessments: Array<{ id: string; stage: string; overallScore: number; riskLevel: string; cctvScore: number | null; acsScore: number | null; equipmentScore: number | null; installScore: number | null }>;
   statusHistory: Array<{ id: string; fromStatus: string | null; toStatus: string; changedBy: string; reason: string | null; createdAt: string }>;
   approvals: Array<{ id: string; type: string; status: string; requestedBy: string; approvedBy: string | null; reason: string | null; createdAt: string }>;
   _count: { surveys: number; designs: number; documents: number };
@@ -413,6 +414,15 @@ export const notificationsApi = {
     fetchApi('/notifications/read-all', { method: 'PUT', token }),
 };
 
+// --- Shared Contact Type ---
+
+export interface ContactEntry {
+  name: string;
+  email?: string;
+  phone?: string;
+  role?: string;
+}
+
 // --- Dashboard ---
 
 export interface CalendarEvent {
@@ -438,18 +448,14 @@ export interface DashboardUnassignedOpp {
 export interface DashboardVendor {
   id: string;
   name: string;
-  category: string | null;
-  contact: string | null;
-  phone: string | null;
-  email: string | null;
+  categories: string[];
+  contacts: ContactEntry[];
 }
 
 export interface DashboardSubcontractor {
   id: string;
   companyName: string;
-  primaryContact: string | null;
-  phone: string | null;
-  email: string | null;
+  contacts: ContactEntry[];
   trades: string[];
   territories: string[];
 }
@@ -535,7 +541,7 @@ export const tenantsApi = {
       body: JSON.stringify(data),
     }),
 
-  update: (token: string, id: string, data: { name?: string; isActive?: boolean }) =>
+  update: (token: string, id: string, data: { name?: string; isActive?: boolean; enabledModules?: string[] }) =>
     fetchApi<{ success: boolean; data: Tenant }>(`/tenants/${id}`, {
       method: 'PUT',
       token,
@@ -547,6 +553,340 @@ export const tenantsApi = {
       method: 'DELETE',
       token,
     }),
+};
+
+// --- Vendors ---
+
+export interface Vendor {
+  id: string;
+  tenantId: string;
+  name: string;
+  website: string | null;
+  categories: string[];
+  contacts: ContactEntry[];
+  isActive: boolean;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const vendorsApi = {
+  list: (token: string, query?: Record<string, string>) => {
+    const params = new URLSearchParams(query || {}).toString();
+    return fetchApi<{ success: boolean; data: Vendor[]; total: number }>(
+      `/vendors${params ? `?${params}` : ''}`,
+      { token },
+    );
+  },
+
+  get: (token: string, id: string) =>
+    fetchApi<{ success: boolean; data: Vendor }>(`/vendors/${id}`, { token }),
+
+  create: (token: string, data: { name: string; website?: string; categories?: string[]; contacts?: ContactEntry[]; notes?: string }) =>
+    fetchApi<{ success: boolean; data: Vendor }>('/vendors', {
+      method: 'POST',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  update: (token: string, id: string, data: { name?: string; website?: string; categories?: string[]; contacts?: ContactEntry[]; isActive?: boolean; notes?: string }) =>
+    fetchApi<{ success: boolean; data: Vendor }>(`/vendors/${id}`, {
+      method: 'PUT',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  delete: (token: string, id: string) =>
+    fetchApi<{ success: boolean; message: string }>(`/vendors/${id}`, {
+      method: 'DELETE',
+      token,
+    }),
+};
+
+// --- Subcontractors ---
+
+export interface Subcontractor {
+  id: string;
+  tenantId: string;
+  companyName: string;
+  contacts: ContactEntry[];
+  trades: string[];
+  territories: string[];
+  isActive: boolean;
+  insuranceExpiry: string | null;
+  licenseNumber: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const subcontractorsApi = {
+  list: (token: string, query?: Record<string, string>) => {
+    const params = new URLSearchParams(query || {}).toString();
+    return fetchApi<{ success: boolean; data: Subcontractor[]; total: number }>(
+      `/subcontractors${params ? `?${params}` : ''}`,
+      { token },
+    );
+  },
+
+  get: (token: string, id: string) =>
+    fetchApi<{ success: boolean; data: Subcontractor }>(`/subcontractors/${id}`, { token }),
+
+  create: (token: string, data: { companyName: string; contacts?: ContactEntry[]; trades?: string[]; territories?: string[]; insuranceExpiry?: string; licenseNumber?: string; notes?: string }) =>
+    fetchApi<{ success: boolean; data: Subcontractor }>('/subcontractors', {
+      method: 'POST',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  update: (token: string, id: string, data: { companyName?: string; contacts?: ContactEntry[]; trades?: string[]; territories?: string[]; isActive?: boolean; insuranceExpiry?: string; licenseNumber?: string; notes?: string }) =>
+    fetchApi<{ success: boolean; data: Subcontractor }>(`/subcontractors/${id}`, {
+      method: 'PUT',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  delete: (token: string, id: string) =>
+    fetchApi<{ success: boolean; message: string }>(`/subcontractors/${id}`, {
+      method: 'DELETE',
+      token,
+    }),
+};
+
+// --- Devices (Global Library) ---
+
+export interface Device {
+  id: string;
+  manufacturer: string;
+  category: string;
+  model: string;
+  partNumber: string;
+  description: string | null;
+  resolution: string | null;
+  formFactor: string | null;
+  indoor: boolean | null;
+  outdoor: boolean | null;
+  vandal: boolean | null;
+  hfov: number | null;
+  maxDistance: number | null;
+  focalLength: string | null;
+  imager: string | null;
+  specs: Record<string, unknown>;
+  mountOptions: string[];
+  msrp: number | null;
+  ndaaCompliant: boolean;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const devicesApi = {
+  list: (token: string, query?: Record<string, string>) => {
+    const params = new URLSearchParams(query || {}).toString();
+    return fetchApi<{ success: boolean; data: Device[]; total: number }>(
+      `/devices${params ? `?${params}` : ''}`,
+      { token },
+    );
+  },
+
+  get: (token: string, id: string) =>
+    fetchApi<{ success: boolean; data: Device }>(`/devices/${id}`, { token }),
+
+  manufacturers: (token: string) =>
+    fetchApi<{ success: boolean; data: string[] }>('/devices/manufacturers', { token }),
+
+  categories: (token: string) =>
+    fetchApi<{ success: boolean; data: string[] }>('/devices/categories', { token }),
+
+  mounts: (token: string, id: string) =>
+    fetchApi<{ success: boolean; data: Device[] }>(`/devices/${id}/mounts`, { token }),
+
+  create: (token: string, data: Partial<Device>) =>
+    fetchApi<{ success: boolean; data: Device }>('/devices', {
+      method: 'POST',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  update: (token: string, id: string, data: Partial<Device>) =>
+    fetchApi<{ success: boolean; data: Device }>(`/devices/${id}`, {
+      method: 'PUT',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  delete: (token: string, id: string) =>
+    fetchApi<{ success: boolean; message: string }>(`/devices/${id}`, {
+      method: 'DELETE',
+      token,
+    }),
+};
+
+// --- Designs ---
+
+export interface PlacedDeviceData {
+  id: string;
+  designId: string;
+  deviceId: string;
+  area: string | null;
+  floor: string | null;
+  room: string | null;
+  positionX: number | null;
+  positionY: number | null;
+  rotation: number;
+  fovAngle: number | null;
+  fovDistance: number | null;
+  cameraHeight: number | null;
+  tilt: number | null;
+  notes: string | null;
+  installDetails: string | null;
+  device?: Device | null;
+}
+
+export interface DesignListItem {
+  id: string;
+  tenantId: string;
+  oppId: string | null;
+  name: string;
+  version: number;
+  status: string;
+  createdById: string;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: { id: string; firstName: string; lastName: string };
+  opportunity: { id: string; oppNumber: string; customerName: string; projectName: string } | null;
+  _count: { placedDevices: number };
+}
+
+export interface DesignDetail extends DesignListItem {
+  canvasData: Record<string, unknown>;
+  placedDevices: PlacedDeviceData[];
+}
+
+export interface HardwareScheduleItem {
+  manufacturer: string;
+  model: string;
+  partNumber: string;
+  category: string;
+  description: string | null;
+  quantity: number;
+  areas: string[];
+}
+
+export interface HardwareSchedule {
+  designName: string;
+  version: number;
+  opportunity: { oppNumber: string; customerName: string; projectName: string } | null;
+  totalDevices: number;
+  uniqueDevices: number;
+  items: HardwareScheduleItem[];
+}
+
+export interface SOWDevice {
+  id: string;
+  manufacturer: string;
+  model: string;
+  partNumber: string;
+  category: string;
+  cameraHeight: number | null;
+  fovAngle: number | null;
+  fovDistance: number | null;
+  tilt: number | null;
+  notes: string | null;
+  installDetails: string | null;
+}
+
+export interface SOWRoom {
+  room: string;
+  devices: SOWDevice[];
+}
+
+export interface SOWFloor {
+  floor: string;
+  rooms: SOWRoom[];
+}
+
+export interface SOWArea {
+  area: string;
+  floors: SOWFloor[];
+}
+
+export interface SOW {
+  designName: string;
+  version: number;
+  status: string;
+  createdBy: string;
+  opportunity: { oppNumber: string; customerName: string; projectName: string; installAddress: string | null; installCity: string | null; installState: string | null; installZip: string | null } | null;
+  totalDevices: number;
+  areas: SOWArea[];
+}
+
+export const designsApi = {
+  list: (token: string, query?: Record<string, string>) => {
+    const params = new URLSearchParams(query || {}).toString();
+    return fetchApi<{ success: boolean; data: DesignListItem[]; total: number }>(
+      `/designs${params ? `?${params}` : ''}`,
+      { token },
+    );
+  },
+
+  get: (token: string, id: string) =>
+    fetchApi<{ success: boolean; data: DesignDetail }>(`/designs/${id}`, { token }),
+
+  create: (token: string, data: { name: string; oppId?: string }) =>
+    fetchApi<{ success: boolean; data: DesignListItem }>('/designs', {
+      method: 'POST',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  update: (token: string, id: string, data: { name?: string; oppId?: string }) =>
+    fetchApi<{ success: boolean; data: DesignListItem }>(`/designs/${id}`, {
+      method: 'PUT',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  changeStatus: (token: string, id: string, status: string) =>
+    fetchApi<{ success: boolean; data: DesignListItem }>(`/designs/${id}/status`, {
+      method: 'PUT',
+      token,
+      body: JSON.stringify({ status }),
+    }),
+
+  delete: (token: string, id: string) =>
+    fetchApi<{ success: boolean; message: string }>(`/designs/${id}`, {
+      method: 'DELETE',
+      token,
+    }),
+
+  // Placed devices
+  addDevice: (token: string, designId: string, data: Partial<PlacedDeviceData> & { deviceId: string }) =>
+    fetchApi<{ success: boolean; data: PlacedDeviceData }>(`/designs/${designId}/devices`, {
+      method: 'POST',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  updateDevice: (token: string, designId: string, placedDeviceId: string, data: Partial<PlacedDeviceData>) =>
+    fetchApi<{ success: boolean; data: PlacedDeviceData }>(`/designs/${designId}/devices/${placedDeviceId}`, {
+      method: 'PUT',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  removeDevice: (token: string, designId: string, placedDeviceId: string) =>
+    fetchApi<{ success: boolean; message: string }>(`/designs/${designId}/devices/${placedDeviceId}`, {
+      method: 'DELETE',
+      token,
+    }),
+
+  // Hardware Schedule & SOW
+  hardwareSchedule: (token: string, id: string) =>
+    fetchApi<{ success: boolean; data: HardwareSchedule }>(`/designs/${id}/hardware-schedule`, { token }),
+
+  sow: (token: string, id: string) =>
+    fetchApi<{ success: boolean; data: SOW }>(`/designs/${id}/sow`, { token }),
 };
 
 export { ApiError };

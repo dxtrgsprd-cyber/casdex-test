@@ -14,16 +14,18 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     setChecked(true);
   }, [hydrate]);
 
+  const hasGlobalRole = !!user?.globalRole;
+
   useEffect(() => {
     if (checked && !isAuthenticated) {
       router.replace('/login');
-    } else if (checked && isAuthenticated && user?.isGlobalAdmin) {
-      // Global admins do not access the regular app — redirect to admin portal
+    } else if (checked && isAuthenticated && hasGlobalRole) {
+      // Global admin/manager do not access the regular app — redirect to admin portal
       router.replace('/admin');
     }
-  }, [checked, isAuthenticated, user, router]);
+  }, [checked, isAuthenticated, hasGlobalRole, router]);
 
-  if (!checked || !isAuthenticated || user?.isGlobalAdmin) {
+  if (!checked || !isAuthenticated || hasGlobalRole) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-gray-400 text-sm">Loading...</div>

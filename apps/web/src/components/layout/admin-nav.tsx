@@ -13,7 +13,43 @@ const ADMIN_NAV_ITEMS: AdminNavItem[] = [
   { label: 'Dashboard', href: '/admin' },
   { label: 'Organizations', href: '/admin/tenants' },
   { label: 'Users', href: '/admin/users' },
+  { label: 'Device Library', href: '/admin/devices' },
 ];
+
+function CasdexAdminLogo() {
+  return (
+    <div className="flex flex-col items-center leading-none">
+      <span
+        className="text-xl font-bold tracking-[0.15em]"
+        style={{
+          background: 'linear-gradient(180deg, #e8e8e8 0%, #b0b0b0 40%, #8a8a8a 60%, #c0c0c0 100%)',
+          WebkitBackgroundClip: 'text',
+          WebkitTextFillColor: 'transparent',
+          filter: 'drop-shadow(0 0 2px rgba(255,255,255,0.15))',
+        }}
+      >
+        CASDEX
+      </span>
+      <div
+        className="w-full h-[2px] my-0.5 rounded-full"
+        style={{
+          background: 'linear-gradient(90deg, transparent 0%, #a855f7 30%, #d946ef 50%, #a855f7 70%, transparent 100%)',
+          boxShadow: '0 0 6px 1px rgba(168, 85, 247, 0.5), 0 0 12px 2px rgba(217, 70, 239, 0.25)',
+        }}
+      />
+      <span
+        className="text-[9px] font-semibold tracking-[0.25em] uppercase"
+        style={{
+          background: 'linear-gradient(180deg, #d0d0d0 0%, #999 100%)',
+          WebkitBackgroundClip: 'text',
+          WebkitTextFillColor: 'transparent',
+        }}
+      >
+        Platform
+      </span>
+    </div>
+  );
+}
 
 export function AdminNav() {
   const pathname = usePathname();
@@ -34,10 +70,7 @@ export function AdminNav() {
           onClick={() => router.push('/admin')}
           className="flex items-center mr-8 focus:outline-none"
         >
-          <span className="text-xl font-bold text-white tracking-tight">CASDEX</span>
-          <span className="ml-2 text-xs font-medium text-sidebar-text uppercase tracking-wider">
-            Admin
-          </span>
+          <CasdexAdminLogo />
         </button>
 
         {/* Navigation */}
