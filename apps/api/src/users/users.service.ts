@@ -5,7 +5,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { hash } from 'bcryptjs';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../common/prisma.service';
 import { EmailService } from '../email/email.service';
 import { CreateUserDto, UpdateUserDto, UpdateUserRoleDto, UpdateProfileDto } from './dto/users.dto';
@@ -180,8 +180,8 @@ export class UsersService {
       passwordHash = await hash(dto.password, 12);
     } else {
       // Generate a temporary password and create an invite token
-      passwordHash = await hash(uuidv4(), 12);
-      inviteToken = uuidv4();
+      passwordHash = await hash(randomUUID(), 12);
+      inviteToken = randomUUID();
     }
 
     const user = await this.prisma.user.create({
