@@ -734,6 +734,178 @@ export const devicesApi = {
       method: 'DELETE',
       token,
     }),
+
+  bulkImport: (token: string, items: Array<Partial<Device> & { manufacturer: string; category: string; model: string; partNumber: string }>) =>
+    fetchApi<{ success: boolean; imported: number; errors: string[] }>('/devices/bulk-import', {
+      method: 'POST',
+      token,
+      body: JSON.stringify({ items }),
+    }),
+};
+
+// --- Calculator Data ---
+
+export interface MountConfigData {
+  id: string;
+  manufacturer: string;
+  cameraModel: string | null;
+  locationType: string;
+  components: Array<{ component: string; partBase: string; description: string }>;
+  colorSuffix: Record<string, string>;
+  colorPattern: string | null;
+  sortOrder: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CalcReferenceDataItem {
+  id: string;
+  category: string;
+  key: string;
+  label: string;
+  data: Record<string, unknown>;
+  sortOrder: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ComplianceJurisdictionData {
+  id: string;
+  stateLabel: string;
+  code: string;
+  authority: string;
+  adoptedCodes: string[];
+  maglockRequiresPirRex: boolean;
+  maglockRequiresPneumaticPte: boolean;
+  fireRatedFailSafeRequired: boolean;
+  fireRatedCloserRequired: boolean;
+  facpTieInRequired: boolean;
+  stairwellReIlluminationRequired: boolean;
+  panicHardwareOnEgressDoors: boolean;
+  additionalNotes: string[];
+  sortOrder: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const calculatorDataApi = {
+  // Mount configs
+  listMountConfigs: (token: string, query?: Record<string, string>) => {
+    const params = new URLSearchParams(query || {}).toString();
+    return fetchApi<{ success: boolean; data: MountConfigData[]; total: number }>(
+      `/calculator-data/mount-configs${params ? `?${params}` : ''}`,
+      { token },
+    );
+  },
+
+  createMountConfig: (token: string, data: Partial<MountConfigData>) =>
+    fetchApi<{ success: boolean; data: MountConfigData }>('/calculator-data/mount-configs', {
+      method: 'POST',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  updateMountConfig: (token: string, id: string, data: Partial<MountConfigData>) =>
+    fetchApi<{ success: boolean; data: MountConfigData }>(`/calculator-data/mount-configs/${id}`, {
+      method: 'PUT',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  deleteMountConfig: (token: string, id: string) =>
+    fetchApi<{ success: boolean; message: string }>(`/calculator-data/mount-configs/${id}`, {
+      method: 'DELETE',
+      token,
+    }),
+
+  bulkImportMountConfigs: (token: string, items: Array<Partial<MountConfigData>>) =>
+    fetchApi<{ success: boolean; imported: number; errors: string[] }>('/calculator-data/mount-configs/bulk-import', {
+      method: 'POST',
+      token,
+      body: JSON.stringify({ items }),
+    }),
+
+  // Reference data
+  listReference: (token: string, category?: string) => {
+    const params = category ? `?category=${encodeURIComponent(category)}` : '';
+    return fetchApi<{ success: boolean; data: CalcReferenceDataItem[]; total: number }>(
+      `/calculator-data/reference${params}`,
+      { token },
+    );
+  },
+
+  listReferenceCategories: (token: string) =>
+    fetchApi<{ success: boolean; data: string[] }>('/calculator-data/reference/categories', { token }),
+
+  createReference: (token: string, data: Partial<CalcReferenceDataItem>) =>
+    fetchApi<{ success: boolean; data: CalcReferenceDataItem }>('/calculator-data/reference', {
+      method: 'POST',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  updateReference: (token: string, id: string, data: Partial<CalcReferenceDataItem>) =>
+    fetchApi<{ success: boolean; data: CalcReferenceDataItem }>(`/calculator-data/reference/${id}`, {
+      method: 'PUT',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  deleteReference: (token: string, id: string) =>
+    fetchApi<{ success: boolean; message: string }>(`/calculator-data/reference/${id}`, {
+      method: 'DELETE',
+      token,
+    }),
+
+  bulkImportReference: (token: string, items: Array<Partial<CalcReferenceDataItem>>) =>
+    fetchApi<{ success: boolean; imported: number; errors: string[] }>('/calculator-data/reference/bulk-import', {
+      method: 'POST',
+      token,
+      body: JSON.stringify({ items }),
+    }),
+
+  // Jurisdictions
+  listJurisdictions: (token: string) =>
+    fetchApi<{ success: boolean; data: ComplianceJurisdictionData[]; total: number }>(
+      '/calculator-data/jurisdictions',
+      { token },
+    ),
+
+  exportJurisdictions: (token: string) =>
+    fetchApi<{ success: boolean; data: ComplianceJurisdictionData[] }>(
+      '/calculator-data/jurisdictions/export',
+      { token },
+    ),
+
+  createJurisdiction: (token: string, data: Partial<ComplianceJurisdictionData>) =>
+    fetchApi<{ success: boolean; data: ComplianceJurisdictionData }>('/calculator-data/jurisdictions', {
+      method: 'POST',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  updateJurisdiction: (token: string, id: string, data: Partial<ComplianceJurisdictionData>) =>
+    fetchApi<{ success: boolean; data: ComplianceJurisdictionData }>(`/calculator-data/jurisdictions/${id}`, {
+      method: 'PUT',
+      token,
+      body: JSON.stringify(data),
+    }),
+
+  deleteJurisdiction: (token: string, id: string) =>
+    fetchApi<{ success: boolean; message: string }>(`/calculator-data/jurisdictions/${id}`, {
+      method: 'DELETE',
+      token,
+    }),
+
+  bulkImportJurisdictions: (token: string, items: Array<Partial<ComplianceJurisdictionData>>) =>
+    fetchApi<{ success: boolean; imported: number; errors: string[] }>('/calculator-data/jurisdictions/bulk-import', {
+      method: 'POST',
+      token,
+      body: JSON.stringify({ items }),
+    }),
 };
 
 // --- Designs ---

@@ -654,10 +654,14 @@ export function calculateBuild(
   hasAdo: boolean,
   isMantrap: boolean,
   stateKey: string,
+  powerSpecs?: Record<string, Record<string, number>>,
+  jurisdictions?: Record<string, StateJurisdiction>,
 ): BuildResult {
-  const jurisdiction = STATE_JURISDICTIONS[stateKey];
-  const ctrlDraw = POWER_SPECS[ctrlBrand]?.[ctrlModel] ?? 0.5;
-  const lockDraw = POWER_SPECS[lockBrand]?.[lockModel] ?? 0.5;
+  const ps = powerSpecs || POWER_SPECS;
+  const jur = jurisdictions || STATE_JURISDICTIONS;
+  const jurisdiction = jur[stateKey];
+  const ctrlDraw = ps[ctrlBrand]?.[ctrlModel] ?? 0.5;
+  const lockDraw = ps[lockBrand]?.[lockModel] ?? 0.5;
   let totalDraw = ctrlDraw + lockDraw;
   if (isMantrap) totalDraw *= 2;
 
@@ -758,8 +762,14 @@ export function calculateBuild(
 
 // ===== Compliance Audit Logic =====
 
-export function runComplianceAudit(doorType: string, stateKey: string, hw: HardwareSet): AuditResult {
-  const jurisdiction = STATE_JURISDICTIONS[stateKey];
+export function runComplianceAudit(
+  doorType: string,
+  stateKey: string,
+  hw: HardwareSet,
+  jurisdictions?: Record<string, StateJurisdiction>,
+): AuditResult {
+  const jur = jurisdictions || STATE_JURISDICTIONS;
+  const jurisdiction = jur[stateKey];
   const violations: ComplianceViolation[] = [];
   const recommendations: string[] = [];
   let passCount = 0;

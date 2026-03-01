@@ -2,17 +2,41 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  POWER_SPECS,
-  CONTROLLER_BRANDS,
-  LOCK_BRANDS,
-  DOOR_TYPES,
-  STATE_KEYS,
-  calculateBuild,
-} from '@/lib/access-control-rules';
+import { calculateBuild } from '@/lib/access-control-rules';
+import { useCalcDevices } from '@/hooks/useCalcDevices';
+import { useJurisdictions } from '@/hooks/useJurisdictions';
+import { useCalcReference } from '@/hooks/useCalcReference';
 
 export default function AccessControlBuilderPage() {
   const router = useRouter();
+
+  // Hooks for API data
+  const { devices: powerDevices, loading: powerLoading } = useCalcDevices('power');
+  const { byLabel: jurisdictionsByLabel, jurisdictions: jurisdictionsList, loading: jurLoading } = useJurisdictions();
+  const { data: doorTypeData, loading: dtLoading } = useCalcReference('door_type');
+  const { data: lockTypeData } = useCalcReference('lock_type');
+  const { data: rexTypeData } = useCalcReference('rex_type');
+  const { data: controllerBrandData } = useCalcReference('controller_brand');
+  const { data: lockBrandData } = useCalcReference('lock_brand');
+
+  // Build compatible data structures from hook data
+  const powerSpecs: Record<string, Record<string, number>> = {};
+  for (const d of powerDevices) {
+    const s = d.specs as any;
+    if (!powerSpecs[d.manufacturer]) powerSpecs[d.manufacturer] = {};
+    powerSpecs[d.manufacturer][d.model] = s.powerDrawAmps;
+  }
+
+  const stateKeys = jurisdictionsList.map(j => j.stateLabel);
+  const doorTypes = doorTypeData.map(d => d.label);
+  const lockTypes = lockTypeData.map(d => d.label);
+  const rexTypes = rexTypeData.map(d => d.label);
+
+  const controllerBrands = controllerBrandData.map(d => d.label);
+  const controllerBrandModels: Record<string, string[]> = {};
+  for (const d of controllerBrandData) { controllerBrandModels[d.label] = ((d.data as any).models || []) as string[]; }
+
+  const lockBrands = lockBrandData.map(d => d.label);
 
   const [ctrlBrand, setCtrlBrand] = useState('Verkada');
   const [ctrlModel, setCtrlModel] = useState('AC42');
@@ -21,10 +45,12 @@ export default function AccessControlBuilderPage() {
   const [lockModel, setLockModel] = useState('ML1 Mortise');
   const [hasAdo, setHasAdo] = useState(false);
   const [isMantrap, setIsMantrap] = useState(false);
-  const [state, setState] = useState<string>(STATE_KEYS[0]);
+  const [state, setState] = useState<string>(stateKeys[0] || '');
 
-  const ctrlModels = Object.keys(POWER_SPECS[ctrlBrand] || {});
-  const lockModels = Object.keys(POWER_SPECS[lockBrand] || {});
+  const ctrlModels = Object.keys(powerSpecs[ctrlBrand] || {});
+  const lockModels = Object.keys(powerSpecs[lockBrand] || {});
+
+  const isLoading = powerLoading || jurLoading || dtLoading;
 
   const result = calculateBuild(
     ctrlBrand, ctrlModel,
@@ -32,7 +58,17 @@ export default function AccessControlBuilderPage() {
     lockBrand, lockModel,
     hasAdo, isMantrap,
     state,
+    powerSpecs,
+    jurisdictionsByLabel as any,
   );
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <p className="text-sm text-gray-500">Loading calculator data...</p>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -65,7 +101,7 @@ export default function AccessControlBuilderPage() {
               value={doorType}
               onChange={(e) => setDoorType(e.target.value)}
             >
-              {DOOR_TYPES.map((dt) => (
+              {doorTypes.map((dt) => (
                 <option key={dt} value={dt}>{dt}</option>
               ))}
             </select>
@@ -77,7 +113,7 @@ export default function AccessControlBuilderPage() {
               value={state}
               onChange={(e) => setState(e.target.value)}
             >
-              {STATE_KEYS.map((s) => (
+              {stateKeys.map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>
@@ -97,11 +133,11 @@ export default function AccessControlBuilderPage() {
                 value={ctrlBrand}
                 onChange={(e) => {
                   setCtrlBrand(e.target.value);
-                  const models = Object.keys(POWER_SPECS[e.target.value] || {});
+                  const models = Object.keys(powerSpecs[e.target.value] || {});
                   setCtrlModel(models[0] || '');
                 }}
               >
-                {CONTROLLER_BRANDS.map((b) => (
+                {controllerBrands.map((b) => (
                   <option key={b} value={b}>{b}</option>
                 ))}
               </select>
@@ -120,7 +156,7 @@ export default function AccessControlBuilderPage() {
             </div>
           </div>
           <p className="text-xs text-gray-400 mt-2">
-            Draw: {(POWER_SPECS[ctrlBrand]?.[ctrlModel] ?? 0.5).toFixed(2)}A @ 24VDC
+            Draw: {(powerSpecs[ctrlBrand]?.[ctrlModel] ?? 0.5).toFixed(2)}A @ 24VDC
           </p>
         </div>
 
@@ -135,11 +171,11 @@ export default function AccessControlBuilderPage() {
                 value={lockBrand}
                 onChange={(e) => {
                   setLockBrand(e.target.value);
-                  const models = Object.keys(POWER_SPECS[e.target.value] || {});
+                  const models = Object.keys(powerSpecs[e.target.value] || {});
                   setLockModel(models[0] || '');
                 }}
               >
-                {LOCK_BRANDS.map((b) => (
+                {lockBrands.map((b) => (
                   <option key={b} value={b}>{b}</option>
                 ))}
               </select>
@@ -158,7 +194,7 @@ export default function AccessControlBuilderPage() {
             </div>
           </div>
           <p className="text-xs text-gray-400 mt-2">
-            Draw: {(POWER_SPECS[lockBrand]?.[lockModel] ?? 0.5).toFixed(2)}A @ 24VDC
+            Draw: {(powerSpecs[lockBrand]?.[lockModel] ?? 0.5).toFixed(2)}A @ 24VDC
           </p>
         </div>
       </div>

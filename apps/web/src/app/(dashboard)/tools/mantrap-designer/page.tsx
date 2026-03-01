@@ -2,11 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  POWER_SPECS,
-  CONTROLLER_BRANDS,
-  LOCK_BRANDS,
-} from '@/lib/access-control-rules';
+import { useCalcDevices } from '@/hooks/useCalcDevices';
+import { useCalcReference } from '@/hooks/useCalcReference';
 
 // ===== Types =====
 
@@ -26,8 +23,6 @@ interface SchematicResult {
   notes: string[];
 }
 
-const INTERCOM_BRANDS = ['Verkada', 'Avigilon', 'Aiphone'];
-
 // ===== Calculation Logic =====
 
 function calculateMantrap(
@@ -41,10 +36,11 @@ function calculateMantrap(
   intercomBrand: string,
   intercomModel: string,
   hasAdo: boolean,
+  powerSpecs: Record<string, Record<string, number>>,
 ): SchematicResult {
-  const ctrlDraw = POWER_SPECS[ctrlBrand]?.[ctrlModel] ?? 0.5;
-  const lock1Draw = POWER_SPECS[lock1Brand]?.[lock1Model] ?? 0.5;
-  const lock2Draw = POWER_SPECS[lock2Brand]?.[lock2Model] ?? 0.5;
+  const ctrlDraw = powerSpecs[ctrlBrand]?.[ctrlModel] ?? 0.5;
+  const lock1Draw = powerSpecs[lock1Brand]?.[lock1Model] ?? 0.5;
+  const lock2Draw = powerSpecs[lock2Brand]?.[lock2Model] ?? 0.5;
 
   let totalDraw = ctrlDraw + lock1Draw + lock2Draw;
 
@@ -88,7 +84,7 @@ function calculateMantrap(
   let flexCount = 0;
 
   if (hasIntercom) {
-    const icomDraw = POWER_SPECS[intercomBrand]?.[intercomModel] ?? 0.4;
+    const icomDraw = powerSpecs[intercomBrand]?.[intercomModel] ?? 0.4;
     totalDraw += icomDraw;
     wiringSchedule.push({
       component: `Intercom (${intercomBrand} ${intercomModel})`,
@@ -173,6 +169,26 @@ function calculateMantrap(
 export default function MantrapDesignerPage() {
   const router = useRouter();
 
+  // Hooks for API data
+  const { devices: powerDevices, loading: powerLoading } = useCalcDevices('power');
+  const { data: controllerBrandData, loading: cbLoading } = useCalcReference('controller_brand');
+  const { data: lockBrandData } = useCalcReference('lock_brand');
+  const { data: intercomBrandData } = useCalcReference('intercom_brand');
+
+  // Build compatible data structures from hook data
+  const powerSpecs: Record<string, Record<string, number>> = {};
+  for (const d of powerDevices) {
+    const s = d.specs as any;
+    if (!powerSpecs[d.manufacturer]) powerSpecs[d.manufacturer] = {};
+    powerSpecs[d.manufacturer][d.model] = s.powerDrawAmps;
+  }
+
+  const controllerBrands = controllerBrandData.map(d => d.label);
+  const lockBrands = lockBrandData.map(d => d.label);
+  const intercomBrands = intercomBrandData.map(d => d.label);
+
+  const isLoading = powerLoading || cbLoading;
+
   const [ctrlBrand, setCtrlBrand] = useState('Verkada');
   const [ctrlModel, setCtrlModel] = useState('AC42');
   const [lock1Brand, setLock1Brand] = useState('Command Access');
@@ -184,14 +200,14 @@ export default function MantrapDesignerPage() {
   const [intercomModel, setIntercomModel] = useState('IX-DV');
   const [hasAdo, setHasAdo] = useState(false);
 
-  const ctrlModels = Object.keys(POWER_SPECS[ctrlBrand] || {});
-  const lock1Models = Object.keys(POWER_SPECS[lock1Brand] || {});
-  const lock2Models = Object.keys(POWER_SPECS[lock2Brand] || {});
-  const intercomModels = Object.keys(POWER_SPECS[intercomBrand] || {}).filter(
+  const ctrlModels = Object.keys(powerSpecs[ctrlBrand] || {});
+  const lock1Models = Object.keys(powerSpecs[lock1Brand] || {});
+  const lock2Models = Object.keys(powerSpecs[lock2Brand] || {});
+  const intercomModels = Object.keys(powerSpecs[intercomBrand] || {}).filter(
     (m) => m.toLowerCase().includes('intercom') || m.startsWith('IX') || m.startsWith('IXG') || m.startsWith('TD')
   );
   // If no intercom-specific models, show all models for that brand
-  const icomModelsToShow = intercomModels.length > 0 ? intercomModels : Object.keys(POWER_SPECS[intercomBrand] || {});
+  const icomModelsToShow = intercomModels.length > 0 ? intercomModels : Object.keys(powerSpecs[intercomBrand] || {});
 
   const result = calculateMantrap(
     ctrlBrand, ctrlModel,
@@ -199,7 +215,16 @@ export default function MantrapDesignerPage() {
     lock2Brand, lock2Model,
     hasIntercom, intercomBrand, intercomModel,
     hasAdo,
+    powerSpecs,
   );
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <p className="text-sm text-gray-500">Loading calculator data...</p>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -232,11 +257,11 @@ export default function MantrapDesignerPage() {
               value={ctrlBrand}
               onChange={(e) => {
                 setCtrlBrand(e.target.value);
-                const models = Object.keys(POWER_SPECS[e.target.value] || {});
+                const models = Object.keys(powerSpecs[e.target.value] || {});
                 setCtrlModel(models[0] || '');
               }}
             >
-              {CONTROLLER_BRANDS.map((b) => (
+              {controllerBrands.map((b) => (
                 <option key={b} value={b}>{b}</option>
               ))}
             </select>
@@ -268,11 +293,11 @@ export default function MantrapDesignerPage() {
                 value={lock1Brand}
                 onChange={(e) => {
                   setLock1Brand(e.target.value);
-                  const models = Object.keys(POWER_SPECS[e.target.value] || {});
+                  const models = Object.keys(powerSpecs[e.target.value] || {});
                   setLock1Model(models[0] || '');
                 }}
               >
-                {LOCK_BRANDS.map((b) => (
+                {lockBrands.map((b) => (
                   <option key={b} value={b}>{b}</option>
                 ))}
               </select>
@@ -291,7 +316,7 @@ export default function MantrapDesignerPage() {
             </div>
           </div>
           <p className="text-xs text-gray-400 mt-2">
-            Draw: {(POWER_SPECS[lock1Brand]?.[lock1Model] ?? 0.5).toFixed(2)}A @ 24VDC
+            Draw: {(powerSpecs[lock1Brand]?.[lock1Model] ?? 0.5).toFixed(2)}A @ 24VDC
           </p>
         </div>
 
@@ -306,11 +331,11 @@ export default function MantrapDesignerPage() {
                 value={lock2Brand}
                 onChange={(e) => {
                   setLock2Brand(e.target.value);
-                  const models = Object.keys(POWER_SPECS[e.target.value] || {});
+                  const models = Object.keys(powerSpecs[e.target.value] || {});
                   setLock2Model(models[0] || '');
                 }}
               >
-                {LOCK_BRANDS.map((b) => (
+                {lockBrands.map((b) => (
                   <option key={b} value={b}>{b}</option>
                 ))}
               </select>
@@ -329,7 +354,7 @@ export default function MantrapDesignerPage() {
             </div>
           </div>
           <p className="text-xs text-gray-400 mt-2">
-            Draw: {(POWER_SPECS[lock2Brand]?.[lock2Model] ?? 0.5).toFixed(2)}A @ 24VDC
+            Draw: {(powerSpecs[lock2Brand]?.[lock2Model] ?? 0.5).toFixed(2)}A @ 24VDC
           </p>
         </div>
       </div>
@@ -367,11 +392,11 @@ export default function MantrapDesignerPage() {
                 value={intercomBrand}
                 onChange={(e) => {
                   setIntercomBrand(e.target.value);
-                  const models = Object.keys(POWER_SPECS[e.target.value] || {});
+                  const models = Object.keys(powerSpecs[e.target.value] || {});
                   setIntercomModel(models[0] || '');
                 }}
               >
-                {INTERCOM_BRANDS.map((b) => (
+                {intercomBrands.map((b) => (
                   <option key={b} value={b}>{b}</option>
                 ))}
               </select>

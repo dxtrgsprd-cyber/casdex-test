@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useCalcReference } from '@/hooks/useCalcReference';
 
 // ===== Types =====
 
@@ -46,53 +47,7 @@ const RESOLUTIONS = ['720p', '1080p', '4MP', '5MP', '4K'] as const;
 
 const FPS_OPTIONS = [5, 10, 15, 20, 25, 30] as const;
 
-const CAMERA_TYPES: Record<string, { label: string; watts: number }> = {
-  standard: { label: 'Standard (7W)', watts: 7 },
-  ir_enhanced: { label: 'IR Enhanced (13W)', watts: 13 },
-  ai_motorized: { label: 'AI Motorized (25W)', watts: 25 },
-  ptz_heater: { label: 'PTZ / Heater (60W)', watts: 60 },
-};
-
-const SMART_CODECS: Record<string, { label: string; multiplier: number }> = {
-  h265_standard: { label: 'Standard H.265', multiplier: 1.0 },
-  axis_zipstream: { label: 'Axis Zipstream (ARTPEC-8)', multiplier: 0.50 },
-  hanwha_wisestream: { label: 'Hanwha WiseStream III (AI)', multiplier: 0.20 },
-  ipro_ai: { label: 'i-PRO AI Smart Coding', multiplier: 0.25 },
-  avigilon_hdsm: { label: 'Avigilon HDSM SmartCodec', multiplier: 0.50 },
-  dw_ai: { label: 'DigitalWatchdog AI', multiplier: 0.50 },
-};
-
-const RECORD_MODES: Record<string, { label: string; note: string }> = {
-  always: { label: 'Always', note: 'Continuous recording' },
-  motion: { label: 'Motion Only', note: 'Records on motion events' },
-  motion_lowres: { label: 'Motion + Low-Res Continuous', note: 'Low-res continuous + high-res on motion' },
-  never: { label: 'Never', note: 'Live view only' },
-};
-
-const MOTION_PRESETS = [
-  { value: 100, label: '100% - Continuous' },
-  { value: 75, label: '75% - Heavy Traffic' },
-  { value: 50, label: '50% - Moderate Activity' },
-  { value: 30, label: '30% - Light Traffic' },
-  { value: 10, label: '10% - Infrequent Activity' },
-];
-
-// Bitrate at 30fps baseline (Mbps)
-const BITRATE_30FPS: Record<string, number> = {
-  '720p': 1.5,
-  '1080p': 3.0,
-  '4MP': 5.0,
-  '5MP': 6.0,
-  '4K': 10.0,
-};
-
-const DRIVE_SIZES = [8, 10, 12, 14, 16, 18, 20];
 const BINARY_CONVERSION = 0.909; // decimal to binary OS conversion
-
-const RAID_LEVELS: Record<string, { label: string; parity: number; penalty: number }> = {
-  raid5: { label: 'RAID 5', parity: 1, penalty: 4 },
-  raid6: { label: 'RAID 6', parity: 2, penalty: 6 },
-};
 
 const MECHANICAL_DRIVE_LIMIT_MBPS = 1440; // 180 MB/s = 1440 Mbps
 
@@ -119,101 +74,11 @@ function createGroup(): CameraGroup {
   };
 }
 
-function calculateGroupResult(group: CameraGroup, retentionDays: number): GroupResult {
-  const baseBitrate = BITRATE_30FPS[group.resolution] ?? 5.0;
-  const baseMbps = baseBitrate * (group.fps / 30);
-  const codecMultiplier = SMART_CODECS[group.smartCodec]?.multiplier ?? 1.0;
-  const cameraMbps = baseMbps * codecMultiplier;
-
-  let effectiveMotion = group.motionPercent / 100;
-  if (group.recordMode === 'never') {
-    return {
-      group,
-      baseMbps,
-      cameraMbps: 0,
-      groupMbps: 0,
-      groupStorageTB: 0,
-      wattsPerCam: CAMERA_TYPES[group.cameraType]?.watts ?? 13,
-      groupWatts: (CAMERA_TYPES[group.cameraType]?.watts ?? 13) * group.count,
-      poeStandard: getPoeStandard(CAMERA_TYPES[group.cameraType]?.watts ?? 13),
-    };
-  }
-  if (group.recordMode === 'motion' || group.recordMode === 'motion_lowres') {
-    // Motion-based recording uses the motion percentage
-    effectiveMotion = group.motionPercent / 100;
-  } else {
-    // Always recording = 100%
-    effectiveMotion = 1.0;
-  }
-
-  const groupMbps = cameraMbps * group.count;
-  // Storage: (total_mbps * 3600 * 24 * days * motion_pct * 1.15) / 8,000,000
-  const rawTB = (groupMbps * 3600 * 24 * retentionDays * effectiveMotion * 1.15) / 8_000_000;
-
-  const wattsPerCam = CAMERA_TYPES[group.cameraType]?.watts ?? 13;
-
-  return {
-    group,
-    baseMbps,
-    cameraMbps,
-    groupMbps,
-    groupStorageTB: rawTB,
-    wattsPerCam,
-    groupWatts: wattsPerCam * group.count,
-    poeStandard: getPoeStandard(wattsPerCam),
-  };
-}
-
 function getPoeStandard(watts: number): string {
   const withSafety = watts * POE_SAFETY_BUFFER;
   if (withSafety <= 15.4) return '802.3af (PoE)';
   if (withSafety <= 30) return '802.3at (PoE+)';
   return '802.3bt (Hi-PoE/PoE++)';
-}
-
-function calculateRaidRows(
-  totalMbps: number,
-  rawStorageTB: number,
-  raidLevel: string,
-): RaidRow[] {
-  const raid = RAID_LEVELS[raidLevel];
-  if (!raid) return [];
-
-  return DRIVE_SIZES.map((driveSize) => {
-    const usablePerDrive = driveSize * BINARY_CONVERSION;
-    const dataDrives = Math.max(1, Math.ceil(rawStorageTB / usablePerDrive));
-    const totalDrives = dataDrives + raid.parity;
-    const rawLabelTB = totalDrives * driveSize;
-    const actualUsableTB = dataDrives * usablePerDrive;
-
-    // Write penalty check
-    const perDriveWriteLoad = totalDrives > 0
-      ? (totalMbps * raid.penalty) / totalDrives
-      : 0;
-
-    const writeLoadStatus = perDriveWriteLoad > MECHANICAL_DRIVE_LIMIT_MBPS
-      ? 'OVERLOAD'
-      : 'STABLE';
-
-    // Chassis selection
-    let chassis: string;
-    if (totalDrives <= 4) chassis = '4-Bay Desktop / 1U Rack';
-    else if (totalDrives <= 8) chassis = '8-Bay 2U Rackmount';
-    else if (totalDrives <= 12) chassis = '12-Bay 2U Rackmount';
-    else chassis = 'High-Density Rackmount';
-
-    return {
-      driveSize,
-      totalDrives,
-      dataDrives,
-      parityDrives: raid.parity,
-      rawLabelTB,
-      actualUsableTB,
-      writeLoadMbps: perDriveWriteLoad,
-      writeLoadStatus,
-      chassis,
-    };
-  });
 }
 
 function getNetworkUplink(totalMbps: number): string {
@@ -260,6 +125,128 @@ export default function SystemCalculatorPage() {
   const [selectedDriveSize, setSelectedDriveSize] = useState(10);
   const [raidLevel, setRaidLevel] = useState('raid5');
 
+  // Load reference data from API
+  const { data: cameraTypeData, loading: l1 } = useCalcReference('camera_power_type');
+  const { data: codecData, loading: l2 } = useCalcReference('smart_codec');
+  const { data: recordData, loading: l3 } = useCalcReference('record_mode');
+  const { data: motionData, loading: l4 } = useCalcReference('motion_preset');
+  const { data: bitrateData, loading: l5 } = useCalcReference('bitrate_standard');
+  const { data: driveData, loading: l6 } = useCalcReference('drive_size');
+  const { data: raidData, loading: l7 } = useCalcReference('raid_level');
+
+  const dataLoading = l1 || l2 || l3 || l4 || l5 || l6 || l7;
+
+  // Build compatible data structures from API data
+  const CAMERA_TYPES: Record<string, { label: string; watts: number }> = {};
+  for (const d of cameraTypeData) { CAMERA_TYPES[d.key] = { label: d.label, watts: (d.data as any).watts }; }
+
+  const SMART_CODECS: Record<string, { label: string; multiplier: number }> = {};
+  for (const d of codecData) { SMART_CODECS[d.key] = { label: d.label, multiplier: (d.data as any).multiplier }; }
+
+  const RECORD_MODES: Record<string, { label: string; note: string }> = {};
+  for (const d of recordData) { RECORD_MODES[d.key] = { label: d.label, note: (d.data as any).note }; }
+
+  const MOTION_PRESETS = motionData.map(d => ({ value: (d.data as any).percentage as number, label: d.label }));
+
+  const BITRATE_30FPS: Record<string, number> = {};
+  for (const d of bitrateData) { BITRATE_30FPS[d.key] = (d.data as any).mbps; }
+
+  const DRIVE_SIZES = driveData.map(d => (d.data as any).tb as number);
+
+  const RAID_LEVELS: Record<string, { label: string; parity: number; penalty: number }> = {};
+  for (const d of raidData) { RAID_LEVELS[d.key] = { label: d.label, parity: (d.data as any).parity, penalty: (d.data as any).penalty }; }
+
+  // Calculation functions (depend on API-loaded constants)
+  function calculateGroupResult(group: CameraGroup, days: number): GroupResult {
+    const baseBitrate = BITRATE_30FPS[group.resolution] ?? 5.0;
+    const baseMbps = baseBitrate * (group.fps / 30);
+    const codecMultiplier = SMART_CODECS[group.smartCodec]?.multiplier ?? 1.0;
+    const cameraMbps = baseMbps * codecMultiplier;
+
+    let effectiveMotion = group.motionPercent / 100;
+    if (group.recordMode === 'never') {
+      return {
+        group,
+        baseMbps,
+        cameraMbps: 0,
+        groupMbps: 0,
+        groupStorageTB: 0,
+        wattsPerCam: CAMERA_TYPES[group.cameraType]?.watts ?? 13,
+        groupWatts: (CAMERA_TYPES[group.cameraType]?.watts ?? 13) * group.count,
+        poeStandard: getPoeStandard(CAMERA_TYPES[group.cameraType]?.watts ?? 13),
+      };
+    }
+    if (group.recordMode === 'motion' || group.recordMode === 'motion_lowres') {
+      // Motion-based recording uses the motion percentage
+      effectiveMotion = group.motionPercent / 100;
+    } else {
+      // Always recording = 100%
+      effectiveMotion = 1.0;
+    }
+
+    const groupMbps = cameraMbps * group.count;
+    // Storage: (total_mbps * 3600 * 24 * days * motion_pct * 1.15) / 8,000,000
+    const rawTB = (groupMbps * 3600 * 24 * days * effectiveMotion * 1.15) / 8_000_000;
+
+    const wattsPerCam = CAMERA_TYPES[group.cameraType]?.watts ?? 13;
+
+    return {
+      group,
+      baseMbps,
+      cameraMbps,
+      groupMbps,
+      groupStorageTB: rawTB,
+      wattsPerCam,
+      groupWatts: wattsPerCam * group.count,
+      poeStandard: getPoeStandard(wattsPerCam),
+    };
+  }
+
+  function calculateRaidRows(
+    totalMbps: number,
+    rawStorageTB: number,
+    raidLevelKey: string,
+  ): RaidRow[] {
+    const raid = RAID_LEVELS[raidLevelKey];
+    if (!raid) return [];
+
+    return DRIVE_SIZES.map((driveSize) => {
+      const usablePerDrive = driveSize * BINARY_CONVERSION;
+      const dataDrives = Math.max(1, Math.ceil(rawStorageTB / usablePerDrive));
+      const totalDrives = dataDrives + raid.parity;
+      const rawLabelTB = totalDrives * driveSize;
+      const actualUsableTB = dataDrives * usablePerDrive;
+
+      // Write penalty check
+      const perDriveWriteLoad = totalDrives > 0
+        ? (totalMbps * raid.penalty) / totalDrives
+        : 0;
+
+      const writeLoadStatus = perDriveWriteLoad > MECHANICAL_DRIVE_LIMIT_MBPS
+        ? 'OVERLOAD'
+        : 'STABLE';
+
+      // Chassis selection
+      let chassis: string;
+      if (totalDrives <= 4) chassis = '4-Bay Desktop / 1U Rack';
+      else if (totalDrives <= 8) chassis = '8-Bay 2U Rackmount';
+      else if (totalDrives <= 12) chassis = '12-Bay 2U Rackmount';
+      else chassis = 'High-Density Rackmount';
+
+      return {
+        driveSize,
+        totalDrives,
+        dataDrives,
+        parityDrives: raid.parity,
+        rawLabelTB,
+        actualUsableTB,
+        writeLoadMbps: perDriveWriteLoad,
+        writeLoadStatus,
+        chassis,
+      };
+    });
+  }
+
   function updateGroup(id: number, updates: Partial<CameraGroup>) {
     setGroups((prev) =>
       prev.map((g) => (g.id === id ? { ...g, ...updates } : g))
@@ -272,6 +259,14 @@ export default function SystemCalculatorPage() {
 
   function addGroup() {
     setGroups((prev) => [...prev, createGroup()]);
+  }
+
+  if (dataLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <p className="text-sm text-gray-500">Loading calculator data...</p>
+      </div>
+    );
   }
 
   // Calculate all groups

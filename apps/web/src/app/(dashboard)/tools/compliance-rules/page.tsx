@@ -2,53 +2,67 @@
 
 import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuthStore } from '@/stores/auth-store';
+import { useJurisdictions } from '@/hooks/useJurisdictions';
+import { calculatorDataApi, ComplianceJurisdictionData } from '@/lib/api';
 import {
-  STATE_JURISDICTIONS,
-  STATE_KEYS,
   importComplianceRules,
   exportComplianceRules,
-  type StateJurisdiction,
   type ComplianceRuleUpload,
 } from '@/lib/access-control-rules';
 
 export default function ComplianceRulesPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { accessToken } = useAuthStore();
 
-  const [jurisdictions, setJurisdictions] = useState<Record<string, StateJurisdiction>>({ ...STATE_JURISDICTIONS });
+  const { jurisdictions, byLabel, loading, refetch } = useJurisdictions();
   const [selectedState, setSelectedState] = useState<string | null>(null);
   const [uploadResult, setUploadResult] = useState<{ imported: number; errors: string[] } | null>(null);
   const [webCheckState, setWebCheckState] = useState<string>('');
   const [webCheckResult, setWebCheckResult] = useState<string | null>(null);
   const [webCheckLoading, setWebCheckLoading] = useState(false);
 
-  const stateKeys = Object.keys(jurisdictions);
-  const selected = selectedState ? jurisdictions[selectedState] : null;
+  const stateKeys = jurisdictions.map((j) => j.stateLabel);
+  const selected = selectedState ? byLabel[selectedState] : null;
 
-  function handleExport() {
-    const rules = exportComplianceRules();
-    const blob = new Blob([JSON.stringify(rules, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `compliance-rules-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+  async function handleExport() {
+    if (!accessToken) return;
+    try {
+      const res = await calculatorDataApi.exportJurisdictions(accessToken);
+      const rules = res.data;
+      const blob = new Blob([JSON.stringify(rules, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `compliance-rules-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // Fallback to client-side export
+      const rules = exportComplianceRules();
+      const blob = new Blob([JSON.stringify(rules, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `compliance-rules-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
   }
 
-  function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !accessToken) return;
     setUploadResult(null);
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
         const text = event.target?.result as string;
         let parsed: ComplianceRuleUpload[];
 
         if (file.name.endsWith('.csv')) {
-          // Parse CSV format
           const lines = text.split('\n').filter((l) => l.trim());
           if (lines.length < 2) {
             setUploadResult({ imported: 0, errors: ['CSV file must have a header row and at least one data row.'] });
@@ -75,23 +89,25 @@ export default function ComplianceRulesPage() {
             };
           });
         } else {
-          // Parse JSON format
           parsed = JSON.parse(text);
           if (!Array.isArray(parsed)) {
             parsed = [parsed];
           }
         }
 
-        const result = importComplianceRules(parsed);
-        setUploadResult(result);
-        setJurisdictions({ ...STATE_JURISDICTIONS });
+        // Import via API
+        const result = await calculatorDataApi.bulkImportJurisdictions(accessToken, parsed as Array<Partial<ComplianceJurisdictionData>>);
+        setUploadResult({ imported: result.imported, errors: result.errors || [] });
+        // Also update client-side constants for backward compatibility
+        importComplianceRules(parsed);
+        // Refresh from API
+        refetch();
       } catch (err) {
         setUploadResult({ imported: 0, errors: [`Failed to parse file: ${err instanceof Error ? err.message : 'Unknown error'}`] });
       }
     };
     reader.readAsText(file);
 
-    // Reset file input
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
@@ -100,25 +116,22 @@ export default function ComplianceRulesPage() {
     setWebCheckLoading(true);
     setWebCheckResult(null);
 
-    // Simulate web lookup for state fire codes
-    // In production, this would call an API endpoint that scrapes/fetches from
-    // ICC (International Code Council), NFPA, or state fire marshal websites
     await new Promise((r) => setTimeout(r, 1500));
 
     const stateNormalized = webCheckState.trim().toLowerCase();
     const matchingKey = stateKeys.find((k) => k.toLowerCase().includes(stateNormalized));
 
     if (matchingKey) {
-      const j = jurisdictions[matchingKey];
+      const j = byLabel[matchingKey];
       setWebCheckResult(
-        `Found: ${j.label}\n` +
+        `Found: ${j.stateLabel}\n` +
         `Authority: ${j.authority}\n` +
-        `Adopted Codes: ${j.adoptedCodes.join(', ')}\n` +
+        `Adopted Codes: ${(j.adoptedCodes || []).join(', ')}\n` +
         `Maglock PIR REX Required: ${j.maglockRequiresPirRex ? 'Yes' : 'No'}\n` +
         `Maglock Pneumatic PTE Required: ${j.maglockRequiresPneumaticPte ? 'Yes' : 'No'}\n` +
         `Fire-Rated Fail-Safe Required: ${j.fireRatedFailSafeRequired ? 'Yes' : 'No'}\n` +
         `FACP Tie-In Required: ${j.facpTieInRequired ? 'Yes' : 'No'}\n\n` +
-        `Status: Rules already loaded in system.`
+        `Status: Rules loaded in system.`
       );
     } else {
       setWebCheckResult(
@@ -134,6 +147,14 @@ export default function ComplianceRulesPage() {
     }
 
     setWebCheckLoading(false);
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <p className="text-sm text-gray-500">Loading compliance rules...</p>
+      </div>
+    );
   }
 
   return (
@@ -161,21 +182,18 @@ export default function ComplianceRulesPage() {
               </div>
             </div>
             <div className="max-h-96 overflow-y-auto">
-              {stateKeys.map((key) => {
-                const j = jurisdictions[key];
-                return (
-                  <button
-                    key={key}
-                    onClick={() => setSelectedState(key)}
-                    className={`w-full text-left px-4 py-2 border-b border-gray-100 hover:bg-gray-50 transition-colors ${
-                      selectedState === key ? 'bg-primary-50 border-l-2 border-l-primary-500' : ''
-                    }`}
-                  >
-                    <p className="text-sm font-medium text-gray-900">{j.code}</p>
-                    <p className="text-xs text-gray-400 truncate">{j.authority}</p>
-                  </button>
-                );
-              })}
+              {jurisdictions.map((j) => (
+                <button
+                  key={j.stateLabel}
+                  onClick={() => setSelectedState(j.stateLabel)}
+                  className={`w-full text-left px-4 py-2 border-b border-gray-100 hover:bg-gray-50 transition-colors ${
+                    selectedState === j.stateLabel ? 'bg-primary-50 border-l-2 border-l-primary-500' : ''
+                  }`}
+                >
+                  <p className="text-sm font-medium text-gray-900">{j.code}</p>
+                  <p className="text-xs text-gray-400 truncate">{j.authority}</p>
+                </button>
+              ))}
             </div>
           </div>
 
@@ -243,10 +261,10 @@ export default function ComplianceRulesPage() {
           {selected ? (
             <div className="space-y-4">
               <div className="card p-4">
-                <h2 className="text-lg font-bold text-gray-900 mb-1">{selected.label}</h2>
+                <h2 className="text-lg font-bold text-gray-900 mb-1">{selected.stateLabel}</h2>
                 <p className="text-sm text-gray-500">{selected.authority}</p>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  {selected.adoptedCodes.map((code, i) => (
+                  {(selected.adoptedCodes || []).map((code: string, i: number) => (
                     <span key={i} className="inline-flex px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
                       {code}
                     </span>
@@ -274,10 +292,10 @@ export default function ComplianceRulesPage() {
                   <h3 className="text-sm font-semibold text-gray-800">State-Specific Notes</h3>
                 </div>
                 <div className="p-4 space-y-2">
-                  {selected.additionalNotes.length === 0 ? (
+                  {(selected.additionalNotes || []).length === 0 ? (
                     <p className="text-sm text-gray-400">No additional notes</p>
                   ) : (
-                    selected.additionalNotes.map((note, i) => (
+                    (selected.additionalNotes || []).map((note: string, i: number) => (
                       <div key={i} className="flex items-start gap-2">
                         <span className="text-gray-400 text-sm mt-0.5">--</span>
                         <p className="text-sm text-gray-600">{note}</p>

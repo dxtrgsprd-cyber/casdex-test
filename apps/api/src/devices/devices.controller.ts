@@ -10,7 +10,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { DevicesService } from './devices.service';
-import { CreateDeviceDto, UpdateDeviceDto, ListDevicesQueryDto } from './dto/devices.dto';
+import { CreateDeviceDto, UpdateDeviceDto, ListDevicesQueryDto, BulkImportDevicesDto } from './dto/devices.dto';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 
@@ -46,6 +46,14 @@ export class DevicesController {
   async mounts(@Param('id') id: string) {
     const data = await this.devicesService.getMounts(id);
     return { success: true, data };
+  }
+
+  @Post('bulk-import')
+  @UseGuards(RolesGuard)
+  @Roles('global_admin', 'org_admin', 'org_manager')
+  async bulkImport(@Body() dto: BulkImportDevicesDto) {
+    const result = await this.devicesService.bulkImport(dto.items);
+    return { success: true, ...result };
   }
 
   @Post()

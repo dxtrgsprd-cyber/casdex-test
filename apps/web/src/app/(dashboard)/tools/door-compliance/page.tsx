@@ -2,20 +2,43 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  DOOR_TYPES_WITH_MANTRAP,
-  STATE_KEYS,
-  CONTROLLER_BRAND_MODELS,
-  LOCK_TYPES,
-  REX_TYPES,
-  runComplianceAudit,
-} from '@/lib/access-control-rules';
+import { runComplianceAudit } from '@/lib/access-control-rules';
+import { useCalcDevices } from '@/hooks/useCalcDevices';
+import { useJurisdictions } from '@/hooks/useJurisdictions';
+import { useCalcReference } from '@/hooks/useCalcReference';
 
 export default function DoorCompliancePage() {
   const router = useRouter();
 
+  // Hooks for API data
+  const { devices: powerDevices, loading: powerLoading } = useCalcDevices('power');
+  const { byLabel: jurisdictionsByLabel, jurisdictions: jurisdictionsList, loading: jurLoading } = useJurisdictions();
+  const { data: doorTypeData, loading: dtLoading } = useCalcReference('door_type');
+  const { data: lockTypeData } = useCalcReference('lock_type');
+  const { data: rexTypeData } = useCalcReference('rex_type');
+  const { data: controllerBrandData } = useCalcReference('controller_brand');
+  const { data: lockBrandData } = useCalcReference('lock_brand');
+
+  // Build compatible data structures from hook data
+  const powerSpecs: Record<string, Record<string, number>> = {};
+  for (const d of powerDevices) {
+    const s = d.specs as any;
+    if (!powerSpecs[d.manufacturer]) powerSpecs[d.manufacturer] = {};
+    powerSpecs[d.manufacturer][d.model] = s.powerDrawAmps;
+  }
+
+  const stateKeys = jurisdictionsList.map(j => j.stateLabel);
+  const doorTypes = doorTypeData.map(d => d.label);
+  // Include Mantrap in door types for compliance auditor
+  const doorTypesWithMantrap = doorTypes.includes('Mantrap') ? doorTypes : [...doorTypes, 'Mantrap'];
+  const lockTypes = lockTypeData.map(d => d.label);
+  const rexTypes = rexTypeData.map(d => d.label);
+
+  const controllerBrandModels: Record<string, string[]> = {};
+  for (const d of controllerBrandData) { controllerBrandModels[d.label] = ((d.data as any).models || []) as string[]; }
+
   const [doorType, setDoorType] = useState<string>('Standard Interior');
-  const [state, setState] = useState<string>(STATE_KEYS[0]);
+  const [state, setState] = useState<string>(stateKeys[0] || '');
   const [controllerBrand, setControllerBrand] = useState('Verkada');
   const [controllerModel, setControllerModel] = useState('AC42');
   const [lockType, setLockType] = useState<string>('Electric Strike (Fail-Secure)');
@@ -24,7 +47,9 @@ export default function DoorCompliancePage() {
   const [hasDps, setHasDps] = useState(true);
   const [hasCloser, setHasCloser] = useState(false);
 
-  const models = CONTROLLER_BRAND_MODELS[controllerBrand] || [];
+  const models = controllerBrandModels[controllerBrand] || [];
+
+  const isLoading = powerLoading || jurLoading || dtLoading;
 
   const result = runComplianceAudit(doorType, state, {
     controllerBrand,
@@ -34,11 +59,19 @@ export default function DoorCompliancePage() {
     rexType,
     hasDps,
     hasCloser,
-  });
+  }, jurisdictionsByLabel as any);
 
   const totalChecks = result.passCount + result.failCount;
   const violationCount = result.violations.filter((v) => v.severity === 'violation').length;
   const warningCount = result.violations.filter((v) => v.severity === 'warning').length;
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <p className="text-sm text-gray-500">Loading calculator data...</p>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -71,7 +104,7 @@ export default function DoorCompliancePage() {
               value={doorType}
               onChange={(e) => setDoorType(e.target.value)}
             >
-              {DOOR_TYPES_WITH_MANTRAP.map((dt) => (
+              {doorTypesWithMantrap.map((dt) => (
                 <option key={dt} value={dt}>{dt}</option>
               ))}
             </select>
@@ -83,7 +116,7 @@ export default function DoorCompliancePage() {
               value={state}
               onChange={(e) => setState(e.target.value)}
             >
-              {STATE_KEYS.map((s) => (
+              {stateKeys.map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>
@@ -95,11 +128,11 @@ export default function DoorCompliancePage() {
               value={controllerBrand}
               onChange={(e) => {
                 setControllerBrand(e.target.value);
-                const newModels = CONTROLLER_BRAND_MODELS[e.target.value] || [];
+                const newModels = controllerBrandModels[e.target.value] || [];
                 setControllerModel(newModels[0] || '');
               }}
             >
-              {Object.keys(CONTROLLER_BRAND_MODELS).map((b) => (
+              {Object.keys(controllerBrandModels).map((b) => (
                 <option key={b} value={b}>{b}</option>
               ))}
             </select>
@@ -129,7 +162,7 @@ export default function DoorCompliancePage() {
               value={lockType}
               onChange={(e) => setLockType(e.target.value)}
             >
-              {LOCK_TYPES.map((lt) => (
+              {lockTypes.map((lt) => (
                 <option key={lt} value={lt}>{lt}</option>
               ))}
             </select>
@@ -142,7 +175,7 @@ export default function DoorCompliancePage() {
               onChange={(e) => setRexType(e.target.value)}
               disabled={!hasRex}
             >
-              {REX_TYPES.map((rt) => (
+              {rexTypes.map((rt) => (
                 <option key={rt} value={rt}>{rt}</option>
               ))}
             </select>

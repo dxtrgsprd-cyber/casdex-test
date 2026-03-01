@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import { useMountConfigs } from '@/hooks/useMountConfigs';
 
 // ============================================================
 // NDAA Mount Expert — Manufacturer Mount Databases
@@ -30,91 +31,6 @@ interface ManufacturerMountDb {
   colorPattern: 'suffix' | 'replace-last'; // how color is applied to part numbers
 }
 
-const MOUNT_DB: Record<string, ManufacturerMountDb> = {
-  Hanwha: {
-    generic: {
-      Wall: [
-        { component: 'Adapter', partBase: 'SBP-300WM', description: 'Wall Mount Adapter' },
-        { component: 'Bracket', partBase: 'SBP-300NB', description: 'Wall Bracket' },
-      ],
-      Corner: [
-        { component: 'Adapter', partBase: 'SBP-300WM', description: 'Wall Mount Adapter' },
-        { component: 'Bracket', partBase: 'SBP-300NC', description: 'Corner Bracket' },
-      ],
-      Pole: [
-        { component: 'Adapter', partBase: 'SBP-300WM', description: 'Wall Mount Adapter' },
-        { component: 'Bracket', partBase: 'SBP-300NP', description: 'Pole Bracket' },
-      ],
-      Flush: [
-        { component: 'Adapter', partBase: 'SBP-300CM', description: 'Flush/Ceiling Mount' },
-      ],
-    },
-    models: {
-      'PNM-C12083RVD': {
-        Wall: [
-          { component: 'Adapter', partBase: 'SBP-300WM', description: 'Wall Mount Adapter' },
-          { component: 'Bracket', partBase: 'SBP-302CM', description: 'Multi-Sensor Wall Bracket' },
-        ],
-        Corner: [
-          { component: 'Adapter', partBase: 'SBP-300WM', description: 'Wall Mount Adapter' },
-          { component: 'Bracket', partBase: 'SBP-302CM', description: 'Multi-Sensor Corner Bracket' },
-          { component: 'Corner Adapter', partBase: 'SBP-300NC', description: 'Corner Adapter Plate' },
-        ],
-        Pole: [
-          { component: 'Adapter', partBase: 'SBP-300WM', description: 'Wall Mount Adapter' },
-          { component: 'Bracket', partBase: 'SBP-302CM', description: 'Multi-Sensor Pole Bracket' },
-          { component: 'Pole Adapter', partBase: 'SBP-300NP', description: 'Pole Adapter Clamp' },
-        ],
-        Flush: [
-          { component: 'Adapter', partBase: 'SBP-302CM', description: 'Multi-Sensor Flush Mount' },
-        ],
-      },
-      'PNM-9322VQP': {
-        Wall: [
-          { component: 'Adapter', partBase: 'SBP-300WM', description: 'Wall Mount Adapter' },
-          { component: 'Bracket', partBase: 'SBP-302CM', description: 'Multi-Sensor Wall Bracket' },
-        ],
-      },
-    },
-    colorSuffix: { White: 'W1', Black: 'B1' },
-    colorPattern: 'suffix',
-  },
-  Axis: {
-    generic: {
-      Wall: [
-        { component: 'Adapter', partBase: 'T91B61', description: 'Wall Mount Bracket' },
-        { component: 'Bracket', partBase: 'T94N01D', description: 'Pendant Kit' },
-      ],
-      Corner: [
-        { component: 'Adapter', partBase: 'T91B61', description: 'Wall Mount Bracket' },
-        { component: 'Bracket', partBase: 'T94N01D', description: 'Pendant Kit' },
-        { component: 'Corner Adapter', partBase: 'T91A67', description: 'Corner Bracket' },
-      ],
-      Pole: [
-        { component: 'Adapter', partBase: 'T91B61', description: 'Wall Mount Bracket' },
-        { component: 'Bracket', partBase: 'T91A47', description: 'Pole Mount Adapter' },
-      ],
-      Flush: [
-        { component: 'Adapter', partBase: 'T94F01S', description: 'Ceiling/Flush Mount Housing' },
-      ],
-    },
-    models: {
-      'Q6135-LE': {
-        Wall: [
-          { component: 'Adapter', partBase: 'T91B63', description: 'PTZ Wall Mount' },
-          { component: 'Bracket', partBase: 'T94N01D', description: 'Pendant Kit' },
-        ],
-        Pole: [
-          { component: 'Adapter', partBase: 'T91B63', description: 'PTZ Wall Mount' },
-          { component: 'Bracket', partBase: 'T91A47', description: 'Pole Mount Adapter' },
-        ],
-      },
-    },
-    colorSuffix: { White: ' White', Black: ' Black' },
-    colorPattern: 'replace-last',
-  },
-};
-
 const LOCATION_TYPES: LocationType[] = ['Wall', 'Corner', 'Pole', 'Flush'];
 const FINISH_COLORS: FinishColor[] = ['White', 'Black'];
 
@@ -129,12 +45,13 @@ interface ResolvedBomLine {
 }
 
 function resolveMountBom(
+  db: Record<string, ManufacturerMountDb>,
   manufacturer: string,
   model: string,
   location: LocationType,
   color: FinishColor,
 ): ResolvedBomLine[] {
-  const mfrDb = MOUNT_DB[manufacturer];
+  const mfrDb = db[manufacturer];
   if (!mfrDb) return [];
 
   // Model-specific override first, then generic fallback
@@ -166,13 +83,45 @@ function resolveMountBom(
 // ============================================================
 
 export default function MountingCalculatorPage() {
-  const manufacturers = Object.keys(MOUNT_DB);
-  const [manufacturer, setManufacturer] = useState(manufacturers[0]);
-  const mfrDb = MOUNT_DB[manufacturer];
+  const { configs: mountData, loading: mountsLoading } = useMountConfigs();
+
+  // Build MOUNT_DB-compatible hierarchical structure from flat API data
+  const mountDbCompat: Record<string, ManufacturerMountDb> = {};
+  for (const mc of mountData) {
+    if (!mountDbCompat[mc.manufacturer]) {
+      mountDbCompat[mc.manufacturer] = { generic: {}, models: {}, colorSuffix: mc.colorSuffix || {}, colorPattern: (mc.colorPattern || 'suffix') as 'suffix' | 'replace-last' };
+    }
+    const mfgData = mountDbCompat[mc.manufacturer];
+    // Update color info from any entry
+    if (mc.colorSuffix && Object.keys(mc.colorSuffix).length > 0) {
+      mfgData.colorSuffix = mc.colorSuffix;
+    }
+    if (mc.colorPattern) mfgData.colorPattern = mc.colorPattern as 'suffix' | 'replace-last';
+
+    if (!mc.cameraModel) {
+      // Generic config
+      mfgData.generic[mc.locationType] = mc.components;
+    } else {
+      // Model-specific config
+      if (!mfgData.models[mc.cameraModel]) mfgData.models[mc.cameraModel] = {};
+      mfgData.models[mc.cameraModel][mc.locationType] = mc.components;
+    }
+  }
+
+  const manufacturers = Object.keys(mountDbCompat);
+  const [manufacturer, setManufacturer] = useState(manufacturers[0] || '');
+  const mfrDb = mountDbCompat[manufacturer];
   const modelNames = mfrDb ? ['Generic', ...Object.keys(mfrDb.models)] : ['Generic'];
   const [model, setModel] = useState('Generic');
   const [location, setLocation] = useState<LocationType>('Wall');
   const [color, setColor] = useState<FinishColor>('White');
+
+  // Set defaults when data loads
+  useMemo(() => {
+    if (manufacturers.length > 0 && !manufacturer) {
+      setManufacturer(manufacturers[0]);
+    }
+  }, [manufacturers.length]);
 
   function handleManufacturerChange(mfr: string) {
     setManufacturer(mfr);
@@ -181,10 +130,24 @@ export default function MountingCalculatorPage() {
 
   const bomLines = useMemo(() => {
     const effectiveModel = model === 'Generic' ? '__generic__' : model;
-    return resolveMountBom(manufacturer, effectiveModel, location, color);
-  }, [manufacturer, model, location, color]);
+    return resolveMountBom(mountDbCompat, manufacturer, effectiveModel, location, color);
+  }, [manufacturer, model, location, color, mountData]);
 
-  const hasModelOverride = model !== 'Generic' && MOUNT_DB[manufacturer]?.models[model]?.[location];
+  const hasModelOverride = model !== 'Generic' && mountDbCompat[manufacturer]?.models[model]?.[location];
+
+  if (mountsLoading) {
+    return (
+      <div>
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-gray-900">Mounting Calculator</h1>
+          <p className="text-sm text-gray-500 mt-1">Loading mount configuration data...</p>
+        </div>
+        <div className="card p-8 text-center">
+          <p className="text-sm text-gray-500">Loading mount configurations...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -310,7 +273,7 @@ export default function MountingCalculatorPage() {
           <tbody>
             {LOCATION_TYPES.map((loc) => {
               const effectiveModel = model === 'Generic' ? '__generic__' : model;
-              const lines = resolveMountBom(manufacturer, effectiveModel, loc, color);
+              const lines = resolveMountBom(mountDbCompat, manufacturer, effectiveModel, loc, color);
               const isActive = loc === location;
               return (
                 <tr
