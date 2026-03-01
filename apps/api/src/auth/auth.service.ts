@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { compare, hash } from 'bcryptjs';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../common/prisma.service';
 import { EmailService } from '../email/email.service';
 import { APP_MODULES, parseTenantSettings } from '@casdex/shared';
@@ -320,7 +320,7 @@ export class AuthService {
     // Always return success to prevent email enumeration
     if (!user) return;
 
-    const token = uuidv4();
+    const token = randomUUID();
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
     await this.prisma.passwordReset.create({
@@ -332,7 +332,9 @@ export class AuthService {
       },
     });
 
-    this.emailService.sendPasswordReset(email, token);
+    // Fire-and-forget: do NOT await so the response time is constant
+    // regardless of whether the user exists (prevents email enumeration via timing)
+    this.emailService.sendPasswordReset(email, token).catch(() => {});
   }
 
   async changePassword(userId: string, currentPassword: string, newPassword: string): Promise<void> {
@@ -376,7 +378,7 @@ export class AuthService {
       expiresIn: process.env.JWT_EXPIRES_IN || '15m',
     });
 
-    const refreshToken = uuidv4();
+    const refreshToken = randomUUID();
     const refreshExpiresIn = process.env.JWT_REFRESH_EXPIRES_IN || '7d';
     const expiresAt = new Date(
       Date.now() + this.parseDuration(refreshExpiresIn),

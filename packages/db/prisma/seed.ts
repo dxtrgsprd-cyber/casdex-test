@@ -99,6 +99,26 @@ const ROLE_PERMISSIONS: Record<string, Record<string, string[]>> = {
     vendors: [],
     subcontractors: [],
   },
+  lead: {
+    opportunities: [],
+    survey: [],
+    design: [],
+    projects: [],
+    tools: [],
+    management: [],
+    vendors: [],
+    subcontractors: [],
+  },
+  tech: {
+    opportunities: [],
+    survey: [],
+    design: [],
+    projects: [],
+    tools: [],
+    management: [],
+    vendors: [],
+    subcontractors: [],
+  },
 };
 
 async function main() {
