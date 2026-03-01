@@ -40,7 +40,7 @@ export default function DesignListPage() {
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  const canManage = roles.includes('org_admin') || roles.includes('org_manager') || roles.includes('presales');
+  const canManage = roles.includes('admin') || roles.includes('manager') || roles.includes('presales');
 
   const loadDesigns = useCallback(async () => {
     if (!accessToken) return;
@@ -80,7 +80,7 @@ export default function DesignListPage() {
     setShowCreate(true);
     if (accessToken) {
       try {
-        const res = await oppsApi.list(accessToken, {});
+        const res = await oppsApi.list(accessToken, { status: 'active' });
         setOpps(res.data || []);
       } catch {
         setOpps([]);
