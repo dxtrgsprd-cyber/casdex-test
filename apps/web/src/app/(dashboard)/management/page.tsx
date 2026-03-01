@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth-store';
 import { authApi, usersApi, rolesApi, Role, UserListItem } from '@/lib/api';
 
@@ -27,11 +28,26 @@ const ACTION_LABELS: Record<string, string> = {
 
 type TabName = 'Profile' | 'Change Password' | 'Users' | 'Roles';
 
+const TAB_PARAM_MAP: Record<string, TabName> = {
+  password: 'Change Password',
+  users: 'Users',
+  roles: 'Roles',
+};
+
 export default function ManagementPage() {
   const { roles } = useAuthStore();
-  const [activeTab, setActiveTab] = useState<TabName>('Profile');
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const initialTab: TabName = (tabParam && TAB_PARAM_MAP[tabParam]) || 'Profile';
+  const [activeTab, setActiveTab] = useState<TabName>(initialTab);
 
-  const isAdmin = roles.includes('admin') || roles.includes('manager');
+  useEffect(() => {
+    if (tabParam && TAB_PARAM_MAP[tabParam]) {
+      setActiveTab(TAB_PARAM_MAP[tabParam]);
+    }
+  }, [tabParam]);
+
+  const isAdmin = roles.includes('org_admin') || roles.includes('org_manager');
 
   const TABS: TabName[] = isAdmin
     ? ['Profile', 'Change Password', 'Users', 'Roles']
