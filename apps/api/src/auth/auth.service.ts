@@ -9,7 +9,7 @@ import { compare, hash } from 'bcryptjs';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../common/prisma.service';
 import { EmailService } from '../email/email.service';
-import { APP_MODULES, parseTenantSettings, JwtPayload, AuthTokens } from '@casdex/shared';
+import { APP_MODULES, parseTenantSettings, JwtPayload, AuthTokens, GlobalRole } from '@casdex/shared';
 
 type TokenPayload = Omit<JwtPayload, 'iat' | 'exp'>;
 
@@ -112,7 +112,7 @@ export class AuthService {
       email: user.email,
       tenantId: selectedTenant.id,
       roles,
-      globalRole: user.globalRole,
+      globalRole: user.globalRole as GlobalRole | null,
     });
 
     // Update last login
@@ -195,7 +195,7 @@ export class AuthService {
       email: stored.user.email,
       tenantId,
       roles,
-      globalRole: stored.user.globalRole,
+      globalRole: stored.user.globalRole as GlobalRole | null,
     });
   }
 
@@ -236,7 +236,7 @@ export class AuthService {
       email: user.email,
       tenantId,
       roles,
-      globalRole: user.globalRole,
+      globalRole: user.globalRole as GlobalRole | null,
     });
 
     const availableTenants = user.tenants
