@@ -12,6 +12,8 @@ const DEFAULT_ROLES = [
   { name: 'installer', displayName: 'Installer' },
   { name: 'subcontractor', displayName: 'Subcontractor' },
   { name: 'customer', displayName: 'Customer' },
+  { name: 'lead', displayName: 'Lead' },
+  { name: 'tech', displayName: 'Tech' },
 ];
 
 // Default permission matrix per role per module
@@ -92,6 +94,26 @@ const ROLE_PERMISSIONS: Record<string, Record<string, string[]>> = {
     survey: [],
     design: [],
     projects: ['read'],
+    tools: [],
+    management: [],
+    vendors: [],
+    subcontractors: [],
+  },
+  lead: {
+    opportunities: [],
+    survey: [],
+    design: [],
+    projects: [],
+    tools: [],
+    management: [],
+    vendors: [],
+    subcontractors: [],
+  },
+  tech: {
+    opportunities: [],
+    survey: [],
+    design: [],
+    projects: [],
     tools: [],
     management: [],
     vendors: [],

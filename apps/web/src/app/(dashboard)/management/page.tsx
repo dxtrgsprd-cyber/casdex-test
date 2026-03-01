@@ -475,8 +475,62 @@ function AddUserModal({
     password: '',
   });
   const [sendInvite, setSendInvite] = useState(true);
+  const [showPermissions, setShowPermissions] = useState(false);
+  const [permissions, setPermissions] = useState<Record<string, Record<string, boolean>>>(() => buildPermissionMatrix(null));
+  const [permissionsModified, setPermissionsModified] = useState(false);
+  const [customRoleName, setCustomRoleName] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  const selectedRole = roles.find((r) => r.id === form.roleId);
+
+  // Build permission matrix from a role
+  function buildPermissionMatrix(role: Role | null | undefined) {
+    const matrix: Record<string, Record<string, boolean>> = {};
+    for (const mod of ALL_MODULES) {
+      matrix[mod] = {};
+      for (const action of ALL_ACTIONS) {
+        const existing = role?.permissions.find((p) => p.module === mod && p.action === action);
+        matrix[mod][action] = existing?.allowed ?? false;
+      }
+    }
+    return matrix;
+  }
+
+  // When role changes, reset permissions to that role's defaults
+  useEffect(() => {
+    if (selectedRole) {
+      setPermissions(buildPermissionMatrix(selectedRole));
+      setPermissionsModified(false);
+      setCustomRoleName('');
+    }
+  }, [form.roleId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function togglePermission(mod: string, action: string) {
+    setPermissions((prev) => ({
+      ...prev,
+      [mod]: { ...prev[mod], [action]: !prev[mod][action] },
+    }));
+    setPermissionsModified(true);
+  }
+
+  function setModuleAll(mod: string, value: boolean) {
+    setPermissions((prev) => ({
+      ...prev,
+      [mod]: Object.fromEntries(ALL_ACTIONS.map((a) => [a, value])),
+    }));
+    setPermissionsModified(true);
+  }
+
+  function buildPermissionsList() {
+    const list: Array<{ module: string; action: string; allowed: boolean }> = [];
+    for (const mod of ALL_MODULES) {
+      for (const action of ALL_ACTIONS) {
+        list.push({ module: mod, action, allowed: permissions[mod][action] });
+      }
+    }
+    return list;
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -484,11 +538,24 @@ function AddUserModal({
     setError('');
     setIsLoading(true);
     try {
+      let roleIdToAssign = form.roleId;
+
+      // If permissions were customized, save as a new custom role first
+      if (permissionsModified && customRoleName.trim()) {
+        const slug = customRoleName.trim().toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_').replace(/^_+|_+$/g, '');
+        const newRole = await rolesApi.duplicate(accessToken, form.roleId, {
+          name: slug,
+          displayName: customRoleName.trim(),
+          permissions: buildPermissionsList(),
+        });
+        roleIdToAssign = newRole.data.id;
+      }
+
       await usersApi.create(accessToken, {
         email: form.email,
         firstName: form.firstName,
         lastName: form.lastName,
-        roleId: form.roleId,
+        roleId: roleIdToAssign,
         phone: form.phone || undefined,
         title: form.title || undefined,
         password: sendInvite ? undefined : form.password || undefined,
@@ -503,7 +570,7 @@ function AddUserModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-gray-200">
           <h3 className="text-lg font-semibold text-gray-900">Add User</h3>
         </div>
@@ -561,7 +628,7 @@ function AddUserModal({
             </div>
           </div>
           <div>
-            <label className="label">Role</label>
+            <label className="label">Role (Template)</label>
             <select
               value={form.roleId}
               onChange={(e) => setForm({ ...form, roleId: e.target.value })}
@@ -569,10 +636,94 @@ function AddUserModal({
               required
             >
               {roles.map((r) => (
-                <option key={r.id} value={r.id}>{r.displayName}</option>
+                <option key={r.id} value={r.id}>
+                  {r.displayName}{r.isDefault ? '' : ' (Custom)'}
+                </option>
               ))}
             </select>
+            <p className="text-xs text-gray-400 mt-1">
+              Select a role as a starting template. You can customize permissions below.
+            </p>
           </div>
+
+          {/* Expandable permissions section */}
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowPermissions(!showPermissions)}
+              className="flex items-center gap-1 text-sm font-medium text-primary-600 hover:text-primary-800"
+            >
+              <span className={`transform transition-transform ${showPermissions ? 'rotate-90' : ''}`}>&#9654;</span>
+              {showPermissions ? 'Hide Permissions' : 'Customize Permissions'}
+              {permissionsModified && <span className="text-xs text-amber-600 ml-2">(modified)</span>}
+            </button>
+          </div>
+
+          {showPermissions && (
+            <div>
+              <div className="border border-gray-200 rounded-md overflow-hidden">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-2 text-left font-medium text-gray-500">Module</th>
+                      {ALL_ACTIONS.map((a) => (
+                        <th key={a} className="px-3 py-2 text-center font-medium text-gray-500 w-16">
+                          {a.charAt(0).toUpperCase() + a.slice(1)}
+                        </th>
+                      ))}
+                      <th className="px-3 py-2 text-center font-medium text-gray-500 w-16">All</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {ALL_MODULES.map((mod) => {
+                      const allChecked = ALL_ACTIONS.every((a) => permissions[mod][a]);
+                      return (
+                        <tr key={mod} className="hover:bg-gray-50">
+                          <td className="px-4 py-2 text-gray-700 font-medium">{MODULE_LABELS[mod]}</td>
+                          {ALL_ACTIONS.map((action) => (
+                            <td key={action} className="px-3 py-2 text-center">
+                              <input
+                                type="checkbox"
+                                checked={permissions[mod][action]}
+                                onChange={() => togglePermission(mod, action)}
+                                className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                              />
+                            </td>
+                          ))}
+                          <td className="px-3 py-2 text-center">
+                            <input
+                              type="checkbox"
+                              checked={allChecked}
+                              onChange={() => setModuleAll(mod, !allChecked)}
+                              className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Save as custom role when permissions are modified */}
+              {permissionsModified && (
+                <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-md">
+                  <p className="text-sm text-amber-800 mb-2">
+                    Permissions have been customized. Name this role to save it for future use.
+                  </p>
+                  <input
+                    type="text"
+                    value={customRoleName}
+                    onChange={(e) => setCustomRoleName(e.target.value)}
+                    placeholder="e.g. Lead - East Region"
+                    className="input-field text-sm"
+                    required={permissionsModified}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
           <div>
             <label className="flex items-center gap-2 text-sm">
               <input
@@ -887,6 +1038,10 @@ function RolesTab() {
     return <div className="text-sm text-gray-500 py-8 text-center">Loading roles...</div>;
   }
 
+  // Separate default (template) roles from custom roles
+  const defaultRoles = roles.filter((r) => r.isDefault);
+  const customRoles = roles.filter((r) => r.isCustom);
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -902,80 +1057,148 @@ function RolesTab() {
         <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2 mb-4">{error}</div>
       )}
 
-      {/* Roles list */}
-      <div className="space-y-3">
-        {roles.map((role) => (
-          <div key={role.id} className="card p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <h3 className="text-sm font-semibold text-gray-900">
-                  {role.displayName}
-                  {role.isDefault && (
-                    <span className="ml-2 text-xs font-normal text-gray-400">(System)</span>
-                  )}
-                  {role.isCustom && (
-                    <span className="ml-2 text-xs font-normal text-primary-600">(Custom)</span>
-                  )}
-                </h3>
-                <p className="text-xs text-gray-500">
-                  {role._count.userTenants} user{role._count.userTenants !== 1 ? 's' : ''} assigned
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setEditingRole(role)}
-                  className="text-xs text-primary-600 hover:text-primary-800"
-                >
-                  Edit Permissions
-                </button>
-                {role.isCustom && (
+      {/* Default / Template roles */}
+      <div className="mb-6">
+        <h3 className="text-sm font-semibold text-gray-700 mb-2">
+          Default Role Templates
+          <span className="ml-2 text-xs font-normal text-gray-400">
+            Quick templates -- edit and save as a custom role
+          </span>
+        </h3>
+        <div className="space-y-3">
+          {defaultRoles.map((role) => (
+            <div key={role.id} className="card p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900">
+                    {role.displayName}
+                    <span className="ml-2 text-xs font-normal text-gray-400">(Template)</span>
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    {role._count.userTenants} user{role._count.userTenants !== 1 ? 's' : ''} assigned
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
                   <button
-                    onClick={() => handleDelete(role)}
-                    className="text-xs text-red-600 hover:text-red-800"
+                    onClick={() => setEditingRole(role)}
+                    className="text-xs text-primary-600 hover:text-primary-800"
                   >
-                    Delete
+                    Edit / Save As Custom
                   </button>
-                )}
+                </div>
+              </div>
+
+              {/* Permission matrix (compact) */}
+              <div className="border border-gray-200 rounded-md overflow-hidden">
+                <table className="min-w-full text-xs">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-3 py-1.5 text-left font-medium text-gray-500">Module</th>
+                      {ALL_ACTIONS.map((a) => (
+                        <th key={a} className="px-2 py-1.5 text-center font-medium text-gray-500 w-10">
+                          {ACTION_LABELS[a]}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {ALL_MODULES.map((mod) => (
+                      <tr key={mod}>
+                        <td className="px-3 py-1 text-gray-700">{MODULE_LABELS[mod]}</td>
+                        {ALL_ACTIONS.map((action) => {
+                          const perm = role.permissions.find(
+                            (p) => p.module === mod && p.action === action,
+                          );
+                          return (
+                            <td key={action} className="px-2 py-1 text-center">
+                              <span className={`inline-block w-3 h-3 rounded-full ${
+                                perm?.allowed ? 'bg-green-500' : 'bg-gray-200'
+                              }`} />
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
-
-            {/* Permission matrix (compact) */}
-            <div className="border border-gray-200 rounded-md overflow-hidden">
-              <table className="min-w-full text-xs">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-3 py-1.5 text-left font-medium text-gray-500">Module</th>
-                    {ALL_ACTIONS.map((a) => (
-                      <th key={a} className="px-2 py-1.5 text-center font-medium text-gray-500 w-10">
-                        {ACTION_LABELS[a]}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {ALL_MODULES.map((mod) => (
-                    <tr key={mod}>
-                      <td className="px-3 py-1 text-gray-700">{MODULE_LABELS[mod]}</td>
-                      {ALL_ACTIONS.map((action) => {
-                        const perm = role.permissions.find(
-                          (p) => p.module === mod && p.action === action,
-                        );
-                        return (
-                          <td key={action} className="px-2 py-1 text-center">
-                            <span className={`inline-block w-3 h-3 rounded-full ${
-                              perm?.allowed ? 'bg-green-500' : 'bg-gray-200'
-                            }`} />
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
+
+      {/* Custom roles */}
+      {customRoles.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-gray-700 mb-2">Custom Roles</h3>
+          <div className="space-y-3">
+            {customRoles.map((role) => (
+              <div key={role.id} className="card p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-900">
+                      {role.displayName}
+                      <span className="ml-2 text-xs font-normal text-primary-600">(Custom)</span>
+                    </h3>
+                    <p className="text-xs text-gray-500">
+                      {role._count.userTenants} user{role._count.userTenants !== 1 ? 's' : ''} assigned
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setEditingRole(role)}
+                      className="text-xs text-primary-600 hover:text-primary-800"
+                    >
+                      Edit Permissions
+                    </button>
+                    <button
+                      onClick={() => handleDelete(role)}
+                      className="text-xs text-red-600 hover:text-red-800"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+
+                {/* Permission matrix (compact) */}
+                <div className="border border-gray-200 rounded-md overflow-hidden">
+                  <table className="min-w-full text-xs">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-3 py-1.5 text-left font-medium text-gray-500">Module</th>
+                        {ALL_ACTIONS.map((a) => (
+                          <th key={a} className="px-2 py-1.5 text-center font-medium text-gray-500 w-10">
+                            {ACTION_LABELS[a]}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {ALL_MODULES.map((mod) => (
+                        <tr key={mod}>
+                          <td className="px-3 py-1 text-gray-700">{MODULE_LABELS[mod]}</td>
+                          {ALL_ACTIONS.map((action) => {
+                            const perm = role.permissions.find(
+                              (p) => p.module === mod && p.action === action,
+                            );
+                            return (
+                              <td key={action} className="px-2 py-1 text-center">
+                                <span className={`inline-block w-3 h-3 rounded-full ${
+                                  perm?.allowed ? 'bg-green-500' : 'bg-gray-200'
+                                }`} />
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Modals */}
       {showCreateModal && (
@@ -997,7 +1220,7 @@ function RolesTab() {
 }
 
 // ============================================================
-// ROLE EDITOR MODAL (Create / Edit)
+// ROLE EDITOR MODAL (Create / Edit / Save As)
 // ============================================================
 
 function RoleEditorModal({
@@ -1011,9 +1234,15 @@ function RoleEditorModal({
 }) {
   const { accessToken } = useAuthStore();
   const isCreate = !role;
+  const isDefaultRole = role?.isDefault ?? false;
 
-  const [name, setName] = useState(role?.name || '');
-  const [displayName, setDisplayName] = useState(role?.displayName || '');
+  // For default roles being edited, we start in "save as" mode
+  // For custom roles, we edit directly
+  // For new roles, we create from scratch
+  const [saveAsMode, setSaveAsMode] = useState(isDefaultRole);
+
+  const [name, setName] = useState(isDefaultRole ? '' : (role?.name || ''));
+  const [displayName, setDisplayName] = useState(isDefaultRole ? '' : (role?.displayName || ''));
   const [permissions, setPermissions] = useState<Record<string, Record<string, boolean>>>(() => {
     const matrix: Record<string, Record<string, boolean>> = {};
     for (const mod of ALL_MODULES) {
@@ -1064,12 +1293,21 @@ function RoleEditorModal({
 
     try {
       if (isCreate) {
+        // Creating a brand new custom role
         await rolesApi.create(accessToken, {
           name,
           displayName,
           permissions: buildPermissionsList(),
         });
-      } else {
+      } else if (saveAsMode && role) {
+        // Duplicating a default role as a new custom role
+        await rolesApi.duplicate(accessToken, role.id, {
+          name,
+          displayName,
+          permissions: buildPermissionsList(),
+        });
+      } else if (role) {
+        // Editing an existing custom role directly
         await rolesApi.update(accessToken, role.id, {
           displayName: displayName !== role.displayName ? displayName : undefined,
           permissions: buildPermissionsList(),
@@ -1083,9 +1321,9 @@ function RoleEditorModal({
     }
   }
 
-  // Auto-generate slug from display name on create
+  // Auto-generate slug from display name when creating or saving as
   useEffect(() => {
-    if (isCreate && displayName) {
+    if ((isCreate || saveAsMode) && displayName) {
       setName(
         displayName
           .toLowerCase()
@@ -1094,19 +1332,65 @@ function RoleEditorModal({
           .replace(/^_+|_+$/g, ''),
       );
     }
-  }, [displayName, isCreate]);
+  }, [displayName, isCreate, saveAsMode]);
+
+  const modalTitle = isCreate
+    ? 'Create Custom Role'
+    : isDefaultRole
+      ? `Use "${role.displayName}" as Template`
+      : `Edit Role: ${role.displayName}`;
+
+  const submitLabel = isCreate
+    ? 'Create Role'
+    : saveAsMode
+      ? 'Save as Custom Role'
+      : 'Save Changes';
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
       <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900">
-            {isCreate ? 'Create Custom Role' : `Edit Role: ${role.displayName}`}
-          </h3>
+          <h3 className="text-lg font-semibold text-gray-900">{modalTitle}</h3>
+          {isDefaultRole && (
+            <p className="text-xs text-gray-500 mt-1">
+              Customize permissions and save as a new custom role. The original template stays unchanged.
+            </p>
+          )}
         </div>
         <form onSubmit={handleSubmit} className="px-6 py-4 space-y-4">
-          {/* Name fields */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* Name fields -- shown for create and save-as modes */}
+          {(isCreate || saveAsMode) && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">Custom Role Name</label>
+                <input
+                  type="text"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  className="input-field"
+                  required
+                  placeholder={isDefaultRole && role ? `e.g. ${role.displayName} - East Region` : 'e.g. Regional Manager'}
+                />
+              </div>
+              <div>
+                <label className="label">System Name</label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="input-field"
+                  required
+                  placeholder="e.g. regional_manager"
+                  pattern="^[a-z][a-z0-9_]*$"
+                  title="Lowercase letters, numbers, and underscores only"
+                />
+                <p className="text-xs text-gray-400 mt-1">Auto-generated from display name</p>
+              </div>
+            </div>
+          )}
+
+          {/* Display name for custom role editing (not save-as) */}
+          {!isCreate && !saveAsMode && (
             <div>
               <label className="label">Display Name</label>
               <input
@@ -1115,27 +1399,9 @@ function RoleEditorModal({
                 onChange={(e) => setDisplayName(e.target.value)}
                 className="input-field"
                 required
-                placeholder="e.g. Regional Manager"
               />
             </div>
-            <div>
-              <label className="label">System Name</label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className={`input-field ${!isCreate ? 'bg-gray-50' : ''}`}
-                required
-                disabled={!isCreate}
-                placeholder="e.g. regional_manager"
-                pattern="^[a-z][a-z0-9_]*$"
-                title="Lowercase letters, numbers, and underscores only"
-              />
-              {isCreate && (
-                <p className="text-xs text-gray-400 mt-1">Auto-generated from display name</p>
-              )}
-            </div>
-          </div>
+          )}
 
           {/* Permission matrix */}
           <div>
@@ -1191,7 +1457,7 @@ function RoleEditorModal({
           <div className="flex justify-end gap-3 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary text-sm">Cancel</button>
             <button type="submit" className="btn-primary text-sm" disabled={isLoading}>
-              {isLoading ? 'Saving...' : isCreate ? 'Create Role' : 'Save Changes'}
+              {isLoading ? 'Saving...' : submitLabel}
             </button>
           </div>
         </form>
