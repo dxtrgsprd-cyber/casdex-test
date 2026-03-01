@@ -41,7 +41,7 @@ async function fetchApi<T>(endpoint: string, options: FetchOptions = {}): Promis
     // If token is expired/invalid, clear auth state and redirect to login
     if (response.status === 401 && token) {
       if (typeof window !== 'undefined') {
-        localStorage.removeItem('auth-storage');
+        localStorage.removeItem('casdex_auth');
         window.location.href = '/login';
       }
     }
